@@ -1,0 +1,108 @@
+"""
+Day 4 Phase 3 — final_threshold_report.py
+
+Locks in the operating point: Logistic Regression (pure graph topology),
+threshold = 0.353. Chosen because its cost-optimal threshold was stable
+across the entire 0.1x-100x false-positive-cost sensitivity sweep in
+Phase 2 (XGBoost's was not), it's the more interpretable of the two model
+families, and it's the same feature set already recommended as the
+headline result in Day 3 for generalizability reasons.
+
+Produces final_report.md -- ready to paste into the README/PRD.
+"""
+
+import pandas as pd
+
+DATA_DIR = "day1_data"
+CHOSEN_MODEL = "Logistic Regression (pure graph)"
+CHOSEN_COLUMN = "oof_prob_logreg_pure_graph"
+CHOSEN_THRESHOLD = 0.3529693519  # exact value from threshold_sweep_results.csv --
+                                   # NOT the 0.353 rounded for display in Phase 2's
+                                   # printout, which would misclassify one cluster
+
+
+def main():
+    predictions = pd.read_csv("cluster_predictions.csv")
+    clusters = pd.read_csv("clusters.csv")
+    ground_truth = pd.read_csv(f"{DATA_DIR}/ground_truth.csv")
+    orders = pd.read_csv(f"{DATA_DIR}/orders.csv")
+
+    avg_order_value = orders["amount"].mean()
+
+    merged = clusters.merge(ground_truth, on="account_id", how="left")
+    order_value = orders.groupby("account_id")["amount"].sum()
+    merged["order_value"] = merged["account_id"].map(order_value).fillna(0.0)
+
+    y_prob = predictions[CHOSEN_COLUMN].values
+    y_true = predictions["y_true_is_ring"].values
+    flagged = y_prob >= CHOSEN_THRESHOLD
+    predictions["flagged"] = flagged
+
+    # cluster-level confusion matrix
+    tp = int(((flagged == 1) & (y_true == 1)).sum())
+    fp = int(((flagged == 1) & (y_true == 0)).sum())
+    fn = int(((flagged == 0) & (y_true == 1)).sum())
+    tn = int(((flagged == 0) & (y_true == 0)).sum())
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tp / (tp + fn) if (tp + fn) else 0.0
+
+    # account-level cost breakdown at the chosen threshold
+    flagged_clusters = set(predictions.loc[flagged, "cluster_id"])
+    in_flagged = merged.cluster_id.isin(flagged_clusters)
+
+    ring_value_protected = merged.loc[in_flagged & merged.is_ring_member, "order_value"].sum()
+    ring_value_missed = merged.loc[(~in_flagged) & merged.is_ring_member, "order_value"].sum()
+    non_ring_flagged_accounts = int((in_flagged & (~merged.is_ring_member)).sum())
+    fp_cost_at_1x = non_ring_flagged_accounts * avg_order_value
+
+    report = f"""# Day 4 Final Report — Abuse-Ring Sentinel Operating Point
+
+## Chosen model and threshold
+- **Model:** {CHOSEN_MODEL}
+- **Threshold:** {CHOSEN_THRESHOLD}
+- **Why:** cost-optimal threshold was stable across a 0.1x-100x sweep of
+  false-positive-cost assumptions (Day 4 Phase 2) -- more robust than the
+  XGBoost alternative, which shifted its recommendation at extreme (100x)
+  assumptions. Also the more interpretable model, and the same feature set
+  (pure graph topology, no timing or order-amount features) already
+  recommended in Day 3 as the more generalizable result.
+
+## Cluster-level confusion matrix (out-of-fold, 70 clusters)
+| | Predicted: ring | Predicted: not ring |
+|---|---|---|
+| **Actual: ring** | TP = {tp} | FN = {fn} |
+| **Actual: not ring** | FP = {fp} | TN = {tn} |
+
+- Precision: {precision:.3f}
+- Recall: {recall:.3f}
+
+## Account-level cost/benefit at this threshold
+- Ring fraud value protected (caught): Rs.{ring_value_protected:,.2f}
+- Ring fraud value still missed: Rs.{ring_value_missed:,.2f}
+- Legitimate accounts wrongly caught in a flagged cluster: {non_ring_flagged_accounts}
+- Cost of those false positives, at 1x avg order value per account: Rs.{fp_cost_at_1x:,.2f}
+- **Net: protects Rs.{ring_value_protected:,.0f} of fraud at a cost of roughly
+  Rs.{fp_cost_at_1x:,.0f} in false-positive review/friction (at a conservative
+  1x-avg-order-value cost assumption) -- a ~{ring_value_protected/fp_cost_at_1x:.0f}x return.**
+
+## Honest limitations of this number
+- N=70 clusters (18 positive at this threshold's flagging count) -- treat
+  precision/recall as directionally reliable, not statistically tight.
+- The false-positive cost assumption (1x avg order value per wrongly-
+  flagged account) is a modeling choice, not a measured business figure --
+  see Day 4 Phase 1 for why it's swept rather than asserted as fact.
+- This threshold was tuned on the SAME synthetic dataset it's evaluated on
+  (out-of-fold within that one dataset, not a separate holdout population).
+  A genuinely held-out second synthetic population, or real data, would be
+  needed before trusting this threshold in production.
+"""
+
+    with open("final_report.md", "w") as f:
+        f.write(report)
+
+    print(report)
+    print("Saved final_report.md")
+
+
+if __name__ == "__main__":
+    main()
