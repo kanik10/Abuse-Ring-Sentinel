@@ -21,9 +21,10 @@ def main():
     account_device = pd.read_csv(f"{DATA_DIR}/account_device.csv")
     account_payment = pd.read_csv(f"{DATA_DIR}/account_payment.csv")
     account_address = pd.read_csv(f"{DATA_DIR}/account_address.csv")
+    account_ip = pd.read_csv(f"{DATA_DIR}/account_ip.csv")
     ground_truth = pd.read_csv(f"{DATA_DIR}/ground_truth.csv")
 
-    G = build_account_graph(account_device, account_payment, account_address)
+    G = build_account_graph(account_device, account_payment, account_address, account_ip)
     print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges, "
           f"{__import__('networkx').number_connected_components(G)} connected components")
 

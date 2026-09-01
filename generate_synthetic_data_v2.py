@@ -55,7 +55,7 @@ def new_id(kind: str) -> str:
     resolution downstream. Random tokens keep unrelated resources genuinely
     dissimilar, so only real perturbations of the SAME token score high."""
     prefix = {"account": "ACC", "device": "DEV", "payment": "PAY",
-              "address": "ADDR", "order": "ORD"}[kind]
+              "address": "ADDR", "ip": "IP", "order": "ORD"}[kind]
     token = "".join(random.choices("0123456789abcdef", k=10))
     return f"{prefix}{token}"
 
@@ -95,6 +95,7 @@ accounts = []
 account_device = []       # observed (perturbed) strings — what the pipeline sees
 account_payment = []
 account_address = []
+account_ip = []
 raw_to_true = []           # evaluation-only mapping: observed string -> true resource id
 ground_truth = []
 
@@ -123,6 +124,7 @@ for _ in range(N_LEGIT):
     add_account_row(aid, creation)
 
     record_usage(account_device, "device", aid, new_id("device"))
+    record_usage(account_ip, "ip", aid, new_id("ip"))
     for _ in range(random.randint(1, 2)):
         record_usage(account_payment, "payment", aid, new_id("payment"))
     for _ in range(random.randint(1, 2)):
@@ -147,11 +149,12 @@ for g in range(N_COINCIDENTAL_GROUPS):
     members = pool[i:i + size]
     i += size
     group_id = f"COINC{g:04d}"
-    share_type = random.choice(["address", "device", "payment"])
+    share_type = random.choice(["address", "device", "payment", "ip"])
     true_shared = new_id(share_type)
     coincidental_resources[group_id] = (share_type, true_shared, members)
 
-    target = {"address": account_address, "device": account_device, "payment": account_payment}[share_type]
+    target = {"address": account_address, "device": account_device,
+              "payment": account_payment, "ip": account_ip}[share_type]
     for m in members:
         record_usage(target, share_type, m, true_shared)
     for m in members:
@@ -169,9 +172,11 @@ for r in range(N_RINGS):
     ring_size = random.randint(RING_SIZE_MIN, RING_SIZE_MAX)
 
     ring_devices = [new_id("device") for _ in range(random.randint(2, 4))]
+    ring_ips = [new_id("ip") for _ in range(random.randint(2, 4))]
     ring_payments = [new_id("payment") for _ in range(random.randint(2, 3))]
     ring_addresses = [new_id("address") for _ in range(random.randint(2, 3))]
-    ring_resource_pools[ring_id] = {"device": ring_devices, "payment": ring_payments, "address": ring_addresses}
+    ring_resource_pools[ring_id] = {"device": ring_devices, "payment": ring_payments,
+                                    "address": ring_addresses, "ip": ring_ips}
 
     ring_start = random_date(START_DATE, END_DATE - pd.Timedelta(days=30))
     ring_window_days = random.randint(5, 25)
@@ -192,6 +197,7 @@ for r in range(N_RINGS):
         add_account_row(aid, creation)
 
         record_usage(account_device, "device", aid, random.choice(ring_devices))
+        record_usage(account_ip, "ip", aid, random.choice(ring_ips))
         if random.random() < 0.30:
             record_usage(account_payment, "payment", aid, new_id("payment"))
         else:
@@ -216,21 +222,23 @@ for b in range(N_BRIDGES):
     bridge_type = random.choice(["ring_to_ring", "ring_to_coincidental"])
     if bridge_type == "ring_to_ring" and len(ring_ids_list) >= 2:
         ring_a, ring_b = random.sample(ring_ids_list, 2)
-        rtype = random.choice(["device", "payment", "address"])
+        rtype = random.choice(["device", "payment", "address", "ip"])
         shared_true_id = random.choice(ring_resource_pools[ring_a][rtype])
         member_b = random.choice([aid for aid, row in gt_index.items() if row["ring_id"] == ring_b])
-        target = {"address": account_address, "device": account_device, "payment": account_payment}[rtype]
+        target = {"address": account_address, "device": account_device,
+                  "payment": account_payment, "ip": account_ip}[rtype]
         record_usage(target, rtype, member_b, shared_true_id)
         bridge_log.append({"type": "ring_to_ring", "a": ring_a, "b": ring_b,
                             "resource_type": rtype, "bridged_account": member_b})
     elif coincidental_ids_list and ring_ids_list:
         ring_a = random.choice(ring_ids_list)
         coinc_g = random.choice(coincidental_ids_list)
-        rtype = random.choice(["device", "payment", "address"])
+        rtype = random.choice(["device", "payment", "address", "ip"])
         shared_true_id = random.choice(ring_resource_pools[ring_a][rtype])
         _, _, coinc_members = coincidental_resources[coinc_g]
         bystander = random.choice(coinc_members)
-        target = {"address": account_address, "device": account_device, "payment": account_payment}[rtype]
+        target = {"address": account_address, "device": account_device,
+                  "payment": account_payment, "ip": account_ip}[rtype]
         record_usage(target, rtype, bystander, shared_true_id)
         bridge_log.append({"type": "ring_to_coincidental", "ring": ring_a, "group": coinc_g,
                             "resource_type": rtype, "bridged_account": bystander})
@@ -272,6 +280,7 @@ pd.DataFrame(accounts).to_csv("accounts.csv", index=False)
 usage_df(account_device, "device_id").to_csv("account_device.csv", index=False)
 usage_df(account_payment, "payment_id").to_csv("account_payment.csv", index=False)
 usage_df(account_address, "address_id").to_csv("account_address.csv", index=False)
+usage_df(account_ip, "ip_id").to_csv("account_ip.csv", index=False)
 pd.DataFrame(orders).to_csv("orders.csv", index=False)
 pd.DataFrame(ground_truth).to_csv("ground_truth.csv", index=False)
 pd.DataFrame(raw_to_true).to_csv("raw_to_true_resource.csv", index=False)
@@ -290,3 +299,4 @@ rtt = pd.DataFrame(raw_to_true)
 print(f"Total resource usages: {len(rtt)}, "
       f"perturbed (messy) observations: {(rtt.observed != rtt.true_id).sum()} "
       f"({(rtt.observed != rtt.true_id).mean():.1%})")
+print(f"IP usages: {len(account_ip)}")

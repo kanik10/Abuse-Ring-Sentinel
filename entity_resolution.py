@@ -70,11 +70,13 @@ if __name__ == "__main__":
     device = pd.read_csv("account_device.csv")
     payment = pd.read_csv("account_payment.csv")
     address = pd.read_csv("account_address.csv")
+    ip = pd.read_csv("account_ip.csv")
     raw_to_true = pd.read_csv("raw_to_true_resource.csv")
 
     resolved_device = resolve_mapping_table(device, "device_id")
     resolved_payment = resolve_mapping_table(payment, "payment_id")
     resolved_address = resolve_mapping_table(address, "address_id")
+    resolved_ip = resolve_mapping_table(ip, "ip_id")
 
     print("=" * 60)
     print("ENTITY RESOLUTION QUALITY (evaluation only)")
@@ -84,6 +86,7 @@ if __name__ == "__main__":
         ("device", device, resolved_device, "device_id"),
         ("payment", payment, resolved_payment, "payment_id"),
         ("address", address, resolved_address, "address_id"),
+        ("ip", ip, resolved_ip, "ip_id"),
     ]:
         truth = raw_to_true[raw_to_true.resource_type == name]
         truth_map = dict(zip(truth.observed, truth.true_id))
@@ -107,4 +110,5 @@ if __name__ == "__main__":
     resolved_device.to_csv("resolved_account_device.csv", index=False)
     resolved_payment.to_csv("resolved_account_payment.csv", index=False)
     resolved_address.to_csv("resolved_account_address.csv", index=False)
-    print("\nSaved resolved_account_{device,payment,address}.csv for graph construction.")
+    resolved_ip.to_csv("resolved_account_ip.csv", index=False)
+    print("\nSaved resolved_account_{device,payment,address,ip}.csv for graph construction.")

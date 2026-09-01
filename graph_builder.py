@@ -1,8 +1,8 @@
 """
 Day 2 — graph_builder.py
 
-Builds a weighted account-account graph from three account-resource
-mapping tables (device, payment, address). Two accounts get an edge if
+Builds a weighted account-account graph from account-resource mapping
+tables (device, payment, address, and optionally IP). Two accounts get an edge if
 they share at least one resource; the edge weight accumulates
 1 / degree(resource) across every shared resource, so a resource used by
 many accounts (e.g. a shared apartment-complex address) contributes less
@@ -42,15 +42,18 @@ def _add_edges_from_mapping(edge_weights: dict, mapping_df: pd.DataFrame, resour
 
 def build_account_graph(account_device: pd.DataFrame,
                          account_payment: pd.DataFrame,
-                         account_address: pd.DataFrame) -> nx.Graph:
+                         account_address: pd.DataFrame,
+                         account_ip: pd.DataFrame = None) -> nx.Graph:
     """Returns a weighted, undirected NetworkX graph over accounts that
-    share at least one device/payment instrument/address with another
+    share at least one device/payment instrument/address/IP with another
     account. Isolated accounts (no sharing at all) are not added."""
     edge_weights = defaultdict(float)
 
     _add_edges_from_mapping(edge_weights, account_device, "device_id")
     _add_edges_from_mapping(edge_weights, account_payment, "payment_id")
     _add_edges_from_mapping(edge_weights, account_address, "address_id")
+    if account_ip is not None:
+        _add_edges_from_mapping(edge_weights, account_ip, "ip_id")
 
     G = nx.Graph()
     for (a, b), w in edge_weights.items():
@@ -66,7 +69,7 @@ def compute_account_centrality_features(G: nx.Graph,
 
     build_account_graph already returns the account-account projection:
     accounts are nodes, and two accounts are connected when they share at
-    least one device/payment/address. Centrality is intentionally computed
+    least one device/payment/address/IP. Centrality is intentionally computed
     on that projection rather than on account-resource tables.
     """
     n_nodes = G.number_of_nodes()
@@ -76,9 +79,9 @@ def compute_account_centrality_features(G: nx.Graph,
     degree = nx.degree_centrality(G)
     pagerank = nx.pagerank(G, weight="weight")
 
-    # The current generated graph has 531 account nodes. Sampling up to 100
-    # keeps betweenness tractable as the graph grows while still covering a
-    # meaningful share of this dataset; seed=42 keeps the approximation stable.
+    # Sampling up to 100 keeps betweenness tractable as this generated graph
+    # grows while still covering a meaningful share of the account nodes;
+    # seed=42 keeps the approximation stable.
     k = min(betweenness_k, n_nodes)
     betweenness = nx.betweenness_centrality(G, k=k, seed=seed, weight=None)
 
@@ -98,8 +101,9 @@ if __name__ == "__main__":
     account_device = pd.read_csv("day1_data/account_device.csv")
     account_payment = pd.read_csv("day1_data/account_payment.csv")
     account_address = pd.read_csv("day1_data/account_address.csv")
+    account_ip = pd.read_csv("day1_data/account_ip.csv")
 
-    G = build_account_graph(account_device, account_payment, account_address)
+    G = build_account_graph(account_device, account_payment, account_address, account_ip)
     print(f"Graph nodes (accounts with >=1 shared resource): {G.number_of_nodes()}")
     print(f"Graph edges: {G.number_of_edges()}")
     print(f"Connected components: {nx.number_connected_components(G)}")

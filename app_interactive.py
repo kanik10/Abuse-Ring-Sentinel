@@ -10,7 +10,7 @@ Days 2-5's analysis.
 Two modes:
   - Bundled demo data: the same 6,388-account synthetic population used
     throughout this project.
-  - Upload your own: 5 required CSVs matching the same schema (see
+  - Upload your own: 6 required CSVs matching the same schema (see
     DATA_DICTIONARY.md), scored live against the pre-trained model.
 
 The risk threshold is adjustable in the sidebar -- ties directly back to
@@ -40,7 +40,7 @@ from graph_builder import build_account_graph
 from feature_engineering import compute_cluster_features
 
 PURE_GRAPH_FEATURES = ["cluster_size", "entity_reuse_ratio", "internal_density"]
-DEFAULT_THRESHOLD = 0.3529693519
+DEFAULT_THRESHOLD = 0.48111024428768
 FEATURE_LABELS = {
     "cluster_size": "Cluster size",
     "entity_reuse_ratio": "Entity reuse ratio",
@@ -51,6 +51,7 @@ REQUIRED_COLUMNS = {
     "account_device.csv": {"account_id", "device_id"},
     "account_payment.csv": {"account_id", "payment_id"},
     "account_address.csv": {"account_id", "address_id"},
+    "account_ip.csv": {"account_id", "ip_id"},
     "orders.csv": {"account_id", "amount", "timestamp"},
 }
 
@@ -75,6 +76,7 @@ def load_bundled_demo_data():
         pd.read_csv(f"{d}/account_device.csv"),
         pd.read_csv(f"{d}/account_payment.csv"),
         pd.read_csv(f"{d}/account_address.csv"),
+        pd.read_csv(f"{d}/account_ip.csv"),
         pd.read_csv(f"{d}/orders.csv"),
         pd.read_csv(f"{d}/ground_truth.csv"),
     )
@@ -93,7 +95,7 @@ def sigmoid(x: float) -> float:
     return 1.0 / (1.0 + math.exp(-x))
 
 
-def cluster_shared_resources(members, account_device, account_payment, account_address):
+def cluster_shared_resources(members, account_device, account_payment, account_address, account_ip):
     pair_resources = defaultdict(list)
     resource_rows = []
 
@@ -101,6 +103,7 @@ def cluster_shared_resources(members, account_device, account_payment, account_a
         ("device", account_device, "device_id"),
         ("payment", account_payment, "payment_id"),
         ("address", account_address, "address_id"),
+        ("ip", account_ip, "ip_id"),
     ]:
         sub = df[df.account_id.isin(members)]
         for resource_id, group in sub.groupby(col):
@@ -479,8 +482,8 @@ def compute_local_shap(model, features, selected):
 
 
 @st.cache_data(show_spinner=False)
-def run_pipeline(accounts, account_device, account_payment, account_address, orders):
-    G = build_account_graph(account_device, account_payment, account_address)
+def run_pipeline(accounts, account_device, account_payment, account_address, account_ip, orders):
+    G = build_account_graph(account_device, account_payment, account_address, account_ip)
     if G.number_of_nodes() == 0:
         return None, None, None
 
@@ -495,7 +498,8 @@ def run_pipeline(accounts, account_device, account_payment, account_address, ord
         return G, clusters_df, pd.DataFrame()
 
     features = compute_cluster_features(candidates, accounts, orders,
-                                         account_device, account_payment, account_address, G)
+                                         account_device, account_payment, account_address,
+                                         account_ip=account_ip, G=G)
     return G, clusters_df, features
 
 
@@ -518,17 +522,17 @@ mode = st.radio("Data source", ["Bundled demo data", "Upload your own CSVs"], ho
 ground_truth = None
 
 if mode == "Bundled demo data":
-    accounts, account_device, account_payment, account_address, orders, ground_truth = load_bundled_demo_data()
+    accounts, account_device, account_payment, account_address, account_ip, orders, ground_truth = load_bundled_demo_data()
     st.success(f"Loaded bundled dataset: {len(accounts)} accounts.")
 else:
-    st.write("Upload all 5 required files (see DATA_DICTIONARY.md for exact schema):")
-    cols = st.columns(5)
+    st.write("Upload all 6 required files (see DATA_DICTIONARY.md for exact schema):")
+    cols = st.columns(6)
     uploads = {}
     for col, fname in zip(cols, REQUIRED_COLUMNS.keys()):
         uploads[fname] = col.file_uploader(fname, type="csv", key=fname)
 
     if not all(uploads.values()):
-        st.info("Waiting for all 5 files...")
+        st.info("Waiting for all 6 files...")
         st.stop()
 
     dfs = {}
@@ -549,11 +553,14 @@ else:
     account_device = dfs["account_device.csv"]
     account_payment = dfs["account_payment.csv"]
     account_address = dfs["account_address.csv"]
+    account_ip = dfs["account_ip.csv"]
     orders = dfs["orders.csv"]
     st.success(f"Loaded {len(accounts)} accounts from your files.")
 
 with st.spinner("Building graph, running community detection, scoring clusters..."):
-    G, clusters_df, features = run_pipeline(accounts, account_device, account_payment, account_address, orders)
+    G, clusters_df, features = run_pipeline(
+        accounts, account_device, account_payment, account_address, account_ip, orders
+    )
 
 if G is None or features is None or features.empty:
     st.warning("No accounts share any resource with another account — nothing to cluster or score.")
@@ -620,7 +627,7 @@ else:
     selected_row = features.loc[features.cluster_id == selected].iloc[0]
     members = clusters_df.loc[clusters_df.cluster_id == selected, "account_id"].tolist()
     pair_resources, resource_summary = cluster_shared_resources(
-        members, account_device, account_payment, account_address
+        members, account_device, account_payment, account_address, account_ip
     )
 
     st.subheader(f"Cluster {selected} inspection")
@@ -642,8 +649,8 @@ else:
         fcol1, fcol2, fcol3 = st.columns([1.25, 1.0, 1.0])
         selected_resource_types = fcol1.multiselect(
             "Edge resource types",
-            ["device", "payment", "address"],
-            default=["device", "payment", "address"],
+            ["device", "payment", "address", "ip"],
+            default=["device", "payment", "address", "ip"],
         )
         min_edge_weight = fcol2.slider(
             "Minimum edge weight",

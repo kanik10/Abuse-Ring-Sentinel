@@ -23,7 +23,14 @@ def compute_cluster_features(clusters: pd.DataFrame,
                               account_device: pd.DataFrame,
                               account_payment: pd.DataFrame,
                               account_address: pd.DataFrame,
-                              G: nx.Graph) -> pd.DataFrame:
+                              account_ip: pd.DataFrame = None,
+                              G: nx.Graph = None) -> pd.DataFrame:
+    if G is None and isinstance(account_ip, nx.Graph):
+        G = account_ip
+        account_ip = None
+    if G is None:
+        raise ValueError("G must be provided for structural cluster features.")
+
     accounts = accounts.copy()
     accounts["creation_date"] = pd.to_datetime(accounts["creation_date"])
     account_centrality = (
@@ -54,11 +61,14 @@ def compute_cluster_features(clusters: pd.DataFrame,
         dev_rows = account_device[account_device.account_id.isin(members)]
         pay_rows = account_payment[account_payment.account_id.isin(members)]
         addr_rows = account_address[account_address.account_id.isin(members)]
+        ip_rows = (account_ip[account_ip.account_id.isin(members)]
+                   if account_ip is not None else pd.DataFrame(columns=["account_id", "ip_id"]))
 
-        total_usages = len(dev_rows) + len(pay_rows) + len(addr_rows)
+        total_usages = len(dev_rows) + len(pay_rows) + len(addr_rows) + len(ip_rows)
         distinct_resources = (dev_rows.device_id.nunique()
                                + pay_rows.payment_id.nunique()
-                               + addr_rows.address_id.nunique())
+                               + addr_rows.address_id.nunique()
+                               + ip_rows.ip_id.nunique())
         entity_reuse_ratio = 1 - (distinct_resources / total_usages) if total_usages else 0.0
 
         # NOTE: avg_resource_degree and fraction_unique_payment were dropped
@@ -99,12 +109,13 @@ if __name__ == "__main__":
     account_device = pd.read_csv(f"{DATA_DIR}/account_device.csv")
     account_payment = pd.read_csv(f"{DATA_DIR}/account_payment.csv")
     account_address = pd.read_csv(f"{DATA_DIR}/account_address.csv")
+    account_ip = pd.read_csv(f"{DATA_DIR}/account_ip.csv")
 
-    G = build_account_graph(account_device, account_payment, account_address)
+    G = build_account_graph(account_device, account_payment, account_address, account_ip)
 
     features = compute_cluster_features(
         clusters, accounts, orders,
-        account_device, account_payment, account_address, G,
+        account_device, account_payment, account_address, account_ip=account_ip, G=G,
     )
     features.to_csv("cluster_features.csv", index=False)
     print(f"Wrote cluster_features.csv — {len(features)} clusters, "

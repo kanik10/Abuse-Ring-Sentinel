@@ -2,11 +2,11 @@
 Day 4 Phase 3 — final_threshold_report.py
 
 Locks in the operating point: Logistic Regression (pure graph topology),
-threshold = 0.353. Chosen because its cost-optimal threshold was stable
-across the entire 0.1x-100x false-positive-cost sensitivity sweep in
-Phase 2 (XGBoost's was not), it's the more interpretable of the two model
-families, and it's the same feature set already recommended as the
-headline result in Day 3 for generalizability reasons.
+threshold = 0.481. Chosen because its cost-optimal threshold was stable
+across the 0.1x-50x false-positive-cost sensitivity sweep in Phase 2,
+it is the more interpretable of the model families, and it's the same
+feature set already recommended as the headline result in Day 3 for
+generalizability reasons.
 
 Produces final_report.md -- ready to paste into the README/PRD.
 """
@@ -16,9 +16,9 @@ import pandas as pd
 DATA_DIR = "day1_data"
 CHOSEN_MODEL = "Logistic Regression (pure graph)"
 CHOSEN_COLUMN = "oof_prob_logreg_pure_graph"
-CHOSEN_THRESHOLD = 0.3529693519  # exact value from threshold_sweep_results.csv --
-                                   # NOT the 0.353 rounded for display in Phase 2's
-                                   # printout, which would misclassify one cluster
+CHOSEN_THRESHOLD = 0.48111024428768  # exact value from threshold_sweep_results.csv --
+                                    # NOT the 0.481 rounded for display in Phase 2's
+                                    # printout, which can misclassify edge cases
 
 
 def false_positive_breakdown(flagged_accounts: pd.DataFrame) -> tuple[int, int]:
@@ -57,6 +57,8 @@ def main():
     y_true = predictions["y_true_is_ring"].values
     flagged = y_prob >= CHOSEN_THRESHOLD
     predictions["flagged"] = flagged
+    n_clusters = len(predictions)
+    n_flagged = int(flagged.sum())
 
     # cluster-level confusion matrix
     tp = int(((flagged == 1) & (y_true == 1)).sum())
@@ -87,14 +89,13 @@ def main():
 ## Chosen model and threshold
 - **Model:** {CHOSEN_MODEL}
 - **Threshold:** {CHOSEN_THRESHOLD}
-- **Why:** cost-optimal threshold was stable across a 0.1x-100x sweep of
-  false-positive-cost assumptions (Day 4 Phase 2) -- more robust than the
-  XGBoost alternative, which shifted its recommendation at extreme (100x)
-  assumptions. Also the more interpretable model, and the same feature set
-  (pure graph topology, no timing or order-amount features) already
-  recommended in Day 3 as the more generalizable result.
+- **Why:** cost-optimal threshold was stable across a 0.1x-50x sweep of
+  false-positive-cost assumptions (Day 4 Phase 2), shifting only at the
+  extreme 100x point. The model is also interpretable, and uses the same
+  pure graph-topology feature set already recommended in Day 3 as the
+  more generalizable result.
 
-## Cluster-level confusion matrix (out-of-fold, 70 clusters)
+## Cluster-level confusion matrix (out-of-fold, {n_clusters} clusters)
 | | Predicted: ring | Predicted: not ring |
 |---|---|---|
 | **Actual: ring** | TP = {tp} | FN = {fn} |
@@ -113,7 +114,7 @@ def main():
   1x-avg-order-value cost assumption) -- a ~{ring_value_protected/fp_cost_at_1x:.0f}x return.**
 
 ## Honest limitations of this number
-- N=70 clusters (18 positive at this threshold's flagging count) -- treat
+- N={n_clusters} clusters ({n_flagged} flagged at this threshold) -- treat
   precision/recall as directionally reliable, not statistically tight.
 - The false-positive cost assumption (1x avg order value per wrongly-
   flagged account) is a modeling choice, not a measured business figure --
@@ -124,7 +125,7 @@ def main():
   needed before trusting this threshold in production.
 """
 
-    with open("final_report.md", "w") as f:
+    with open("final_report.md", "w", encoding="utf-8") as f:
         f.write(report)
 
     print(report)
