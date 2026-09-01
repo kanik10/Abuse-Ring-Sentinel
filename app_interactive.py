@@ -73,10 +73,10 @@ def load_bundled_demo_data():
     d = "day1_data"
     return (
         pd.read_csv(f"{d}/accounts.csv"),
-        pd.read_csv(f"{d}/account_device.csv"),
-        pd.read_csv(f"{d}/account_payment.csv"),
-        pd.read_csv(f"{d}/account_address.csv"),
-        pd.read_csv(f"{d}/account_ip.csv"),
+        pd.read_csv(f"{d}/resolved_account_device.csv"),
+        pd.read_csv(f"{d}/resolved_account_payment.csv"),
+        pd.read_csv(f"{d}/resolved_account_address.csv"),
+        pd.read_csv(f"{d}/resolved_account_ip.csv"),
         pd.read_csv(f"{d}/orders.csv"),
         pd.read_csv(f"{d}/ground_truth.csv"),
     )

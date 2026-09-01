@@ -106,10 +106,10 @@ if __name__ == "__main__":
     clusters = pd.read_csv("clusters.csv")
     accounts = pd.read_csv(f"{DATA_DIR}/accounts.csv")
     orders = pd.read_csv(f"{DATA_DIR}/orders.csv")
-    account_device = pd.read_csv(f"{DATA_DIR}/account_device.csv")
-    account_payment = pd.read_csv(f"{DATA_DIR}/account_payment.csv")
-    account_address = pd.read_csv(f"{DATA_DIR}/account_address.csv")
-    account_ip = pd.read_csv(f"{DATA_DIR}/account_ip.csv")
+    account_device = pd.read_csv(f"{DATA_DIR}/resolved_account_device.csv")
+    account_payment = pd.read_csv(f"{DATA_DIR}/resolved_account_payment.csv")
+    account_address = pd.read_csv(f"{DATA_DIR}/resolved_account_address.csv")
+    account_ip = pd.read_csv(f"{DATA_DIR}/resolved_account_ip.csv")
 
     G = build_account_graph(account_device, account_payment, account_address, account_ip)
 

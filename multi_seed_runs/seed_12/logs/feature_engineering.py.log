@@ -1,22 +1,22 @@
 $ python3 feature_engineering.py
 
 --- stdout ---
-Wrote cluster_features.csv — 50 clusters, 13 features each.
+Wrote cluster_features.csv — 67 clusters, 13 features each.
                                    mean         std         min          max
-cluster_id                    24.500000   14.577380    0.000000    49.000000
-cluster_size                  11.700000   13.129263    2.000000    39.000000
-entity_reuse_ratio             0.252919    0.210463    0.071429     0.664286
-internal_density               0.801446    0.261477    0.292437     1.000000
-mean_degree_centrality         0.009671    0.010664    0.001712     0.037759
-max_degree_centrality          0.014247    0.016970    0.001712     0.054795
-mean_pagerank                  0.001709    0.000007    0.001681     0.001741
-max_pagerank                   0.002048    0.000456    0.001709     0.003282
-mean_betweenness_centrality    0.000102    0.000320    0.000000     0.001898
-max_betweenness_centrality     0.001368    0.004517    0.000000     0.022136
-creation_span_days           310.820000  181.885666    0.000000   692.000000
-creation_std_days            166.382389  115.366562    0.000000   426.385389
-avg_order_amount             794.591084  264.775159  368.976667  1646.678000
-order_amount_cv                0.532557    0.218032    0.000000     1.267220
+cluster_id                    33.000000   19.485037    0.000000    66.000000
+cluster_size                   9.611940   12.070444    2.000000    39.000000
+entity_reuse_ratio             0.258783    0.256370    0.071429     0.745223
+internal_density               0.899155    0.174138    0.361345     1.000000
+mean_degree_centrality         0.009276    0.011896    0.001555     0.045141
+max_degree_centrality          0.011652    0.015752    0.001555     0.052877
+mean_pagerank                  0.001553    0.000005    0.001528     0.001578
+max_pagerank                   0.001675    0.000207    0.001553     0.002291
+mean_betweenness_centrality    0.000048    0.000167    0.000000     0.001027
+max_betweenness_centrality     0.000667    0.002533    0.000000     0.013148
+creation_span_days           337.432836  185.459072    0.000000   709.000000
+creation_std_days            179.919928  114.517528    0.000000   426.385389
+avg_order_amount             833.033512  246.575168  368.976667  1646.678000
+order_amount_cv                0.519960    0.194644    0.000000     1.267220
 
 
 --- stderr ---

@@ -1,84 +1,82 @@
 $ python3 classifier.py
 
 --- stdout ---
-Clusters: 50  |  positive (ring): 20  |  negative: 30
+Clusters: 64  |  positive (ring): 20  |  negative: 44
 
 ======================================================================
 DAY 3 SUMMARY — out-of-fold metrics (5-fold stratified CV, threshold=0.5)
 ======================================================================
 Day 2 baseline (flag everyone, no scoring): precision=0.738  recall=0.998
-Logistic Regression   precision=1.000  recall=0.950  f1=0.974  PR-AUC=0.988
-XGBoost (max_depth=3)  precision=1.000  recall=0.950  f1=0.974  PR-AUC=0.978
+Logistic Regression   precision=1.000  recall=0.950  f1=0.974  PR-AUC=1.000
+XGBoost (max_depth=3)  precision=1.000  recall=1.000  f1=1.000  PR-AUC=1.000
 
 ----------------------------------------------------------------------
 ABLATION — structural + temporal features only (no order-amount features)
 ----------------------------------------------------------------------
-LogReg (structural)   precision=1.000  recall=0.950  f1=0.974  PR-AUC=0.984
-XGBoost (structural)  precision=1.000  recall=0.950  f1=0.974  PR-AUC=0.976
+LogReg (structural)   precision=1.000  recall=0.950  f1=0.974  PR-AUC=1.000
+XGBoost (structural)  precision=1.000  recall=1.000  f1=1.000  PR-AUC=1.000
 
 Pure graph-topology features used: ['cluster_size', 'entity_reuse_ratio', 'internal_density', 'mean_degree_centrality', 'max_degree_centrality', 'mean_pagerank', 'max_pagerank', 'mean_betweenness_centrality', 'max_betweenness_centrality']
 
 ----------------------------------------------------------------------
 ABLATION 2 — pure graph-topology features only (no timing, no order amount)
 ----------------------------------------------------------------------
-LogReg (pure graph)   precision=1.000  recall=0.950  f1=0.974  PR-AUC=0.973
-XGBoost (pure graph)  precision=0.950  recall=0.950  f1=0.950  PR-AUC=0.981
+LogReg (pure graph)   precision=1.000  recall=0.950  f1=0.974  PR-AUC=1.000
+XGBoost (pure graph)  precision=1.000  recall=1.000  f1=1.000  PR-AUC=1.000
 
 ======================================================================
 CALIBRATION CHECK — are the risk scores trustworthy as probabilities?
 ======================================================================
 
-Logistic Regression (full) -- Brier score: 0.0213  (0=perfect, 0.25=uninformative, 1=worst)
-  predicted [0.0-0.2): n= 30  avg predicted=0.041  actual positive rate=0.033
-  predicted [0.2-0.4): n=  1  avg predicted=0.201  actual positive rate=0.000
-  predicted [0.6-0.8): n=  1  avg predicted=0.788  actual positive rate=1.000
-  predicted [0.8-1.0): n= 18  avg predicted=0.980  actual positive rate=1.000
+Logistic Regression (full) -- Brier score: 0.0061  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 44  avg predicted=0.014  actual positive rate=0.000
+  predicted [0.4-0.6): n=  1  avg predicted=0.459  actual positive rate=1.000
+  predicted [0.6-0.8): n=  1  avg predicted=0.775  actual positive rate=1.000
+  predicted [0.8-1.0): n= 18  avg predicted=0.977  actual positive rate=1.000
 
-XGBoost (full) -- Brier score: 0.0324  (0=perfect, 0.25=uninformative, 1=worst)
-  predicted [0.0-0.2): n= 27  avg predicted=0.046  actual positive rate=0.037
-  predicted [0.2-0.4): n=  4  avg predicted=0.325  actual positive rate=0.000
-  predicted [0.6-0.8): n=  1  avg predicted=0.764  actual positive rate=1.000
-  predicted [0.8-1.0): n= 18  avg predicted=0.920  actual positive rate=1.000
+XGBoost (full) -- Brier score: 0.0031  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 44  avg predicted=0.033  actual positive rate=0.000
+  predicted [0.8-1.0): n= 20  avg predicted=0.920  actual positive rate=1.000
 
-Logistic Regression (pure graph) -- Brier score: 0.0241  (0=perfect, 0.25=uninformative, 1=worst)
-  predicted [0.0-0.2): n= 31  avg predicted=0.052  actual positive rate=0.032
-  predicted [0.6-0.8): n=  2  avg predicted=0.753  actual positive rate=1.000
-  predicted [0.8-1.0): n= 17  avg predicted=0.977  actual positive rate=1.000
+Logistic Regression (pure graph) -- Brier score: 0.0074  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 44  avg predicted=0.016  actual positive rate=0.000
+  predicted [0.4-0.6): n=  1  avg predicted=0.434  actual positive rate=1.000
+  predicted [0.6-0.8): n=  1  avg predicted=0.715  actual positive rate=1.000
+  predicted [0.8-1.0): n= 18  avg predicted=0.971  actual positive rate=1.000
 
-XGBoost (pure graph) -- Brier score: 0.0332  (0=perfect, 0.25=uninformative, 1=worst)
-  predicted [0.0-0.2): n= 29  avg predicted=0.047  actual positive rate=0.034
-  predicted [0.4-0.6): n=  3  avg predicted=0.508  actual positive rate=0.333
-  predicted [0.8-1.0): n= 18  avg predicted=0.932  actual positive rate=1.000
+XGBoost (pure graph) -- Brier score: 0.0030  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 44  avg predicted=0.033  actual positive rate=0.000
+  predicted [0.8-1.0): n= 20  avg predicted=0.920  actual positive rate=1.000
 
 Feature signal (standardized logistic regression coefficients):
-  avg_order_amount           -1.063
-  entity_reuse_ratio         +0.810
-  internal_density           -0.685
-  max_pagerank               +0.643
-  creation_std_days          -0.619
-  creation_span_days         -0.422
-  order_amount_cv            +0.327
-  max_degree_centrality      +0.321
-  cluster_size               +0.316
-  mean_degree_centrality     +0.309
-  mean_betweenness_centrality +0.229
-  mean_pagerank              -0.194
-  max_betweenness_centrality +0.130
+  entity_reuse_ratio         +0.938
+  max_pagerank               +0.853
+  internal_density           -0.789
+  avg_order_amount           -0.450
+  mean_degree_centrality     +0.444
+  max_degree_centrality      +0.439
+  cluster_size               +0.434
+  order_amount_cv            +0.403
+  mean_pagerank              -0.385
+  creation_std_days          -0.373
+  mean_betweenness_centrality +0.282
+  creation_span_days         -0.169
+  max_betweenness_centrality +0.119
 
 Feature signal (XGBoost importances):
-  cluster_size               0.538
-  entity_reuse_ratio         0.246
-  avg_order_amount           0.170
-  creation_std_days          0.039
-  creation_span_days         0.007
+  cluster_size               0.630
+  entity_reuse_ratio         0.278
+  mean_betweenness_centrality 0.061
+  order_amount_cv            0.030
   internal_density           0.000
   mean_degree_centrality     0.000
   max_degree_centrality      0.000
   mean_pagerank              0.000
   max_pagerank               0.000
-  mean_betweenness_centrality 0.000
   max_betweenness_centrality 0.000
-  order_amount_cv            0.000
+  creation_span_days         0.000
+  creation_std_days          0.000
+  avg_order_amount           0.000
 
 Saved cluster_predictions.csv for Day 4 threshold/cost analysis.
 

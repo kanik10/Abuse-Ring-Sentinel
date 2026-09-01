@@ -1,7 +1,7 @@
 $ python3 classifier.py
 
 --- stdout ---
-Clusters: 51  |  positive (ring): 19  |  negative: 32
+Clusters: 62  |  positive (ring): 19  |  negative: 43
 
 ======================================================================
 DAY 3 SUMMARY — out-of-fold metrics (5-fold stratified CV, threshold=0.5)
@@ -28,42 +28,41 @@ XGBoost (pure graph)  precision=1.000  recall=0.947  f1=0.973  PR-AUC=1.000
 CALIBRATION CHECK — are the risk scores trustworthy as probabilities?
 ======================================================================
 
-Logistic Regression (full) -- Brier score: 0.0012  (0=perfect, 0.25=uninformative, 1=worst)
-  predicted [0.0-0.2): n= 32  avg predicted=0.018  actual positive rate=0.000
-  predicted [0.8-1.0): n= 19  avg predicted=0.970  actual positive rate=1.000
+Logistic Regression (full) -- Brier score: 0.0008  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 43  avg predicted=0.011  actual positive rate=0.000
+  predicted [0.8-1.0): n= 19  avg predicted=0.968  actual positive rate=1.000
 
-XGBoost (full) -- Brier score: 0.0210  (0=perfect, 0.25=uninformative, 1=worst)
-  predicted [0.0-0.2): n= 33  avg predicted=0.046  actual positive rate=0.030
-  predicted [0.8-1.0): n= 18  avg predicted=0.923  actual positive rate=1.000
+XGBoost (full) -- Brier score: 0.0174  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 44  avg predicted=0.033  actual positive rate=0.023
+  predicted [0.8-1.0): n= 18  avg predicted=0.920  actual positive rate=1.000
 
-Logistic Regression (pure graph) -- Brier score: 0.0022  (0=perfect, 0.25=uninformative, 1=worst)
-  predicted [0.0-0.2): n= 32  avg predicted=0.020  actual positive rate=0.000
-  predicted [0.6-0.8): n=  1  avg predicted=0.745  actual positive rate=1.000
-  predicted [0.8-1.0): n= 18  avg predicted=0.973  actual positive rate=1.000
+Logistic Regression (pure graph) -- Brier score: 0.0018  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 43  avg predicted=0.013  actual positive rate=0.000
+  predicted [0.6-0.8): n=  1  avg predicted=0.784  actual positive rate=1.000
+  predicted [0.8-1.0): n= 18  avg predicted=0.968  actual positive rate=1.000
 
-XGBoost (pure graph) -- Brier score: 0.0207  (0=perfect, 0.25=uninformative, 1=worst)
-  predicted [0.0-0.2): n= 33  avg predicted=0.046  actual positive rate=0.030
-  predicted [0.8-1.0): n= 18  avg predicted=0.924  actual positive rate=1.000
+XGBoost (pure graph) -- Brier score: 0.0176  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 44  avg predicted=0.033  actual positive rate=0.023
+  predicted [0.8-1.0): n= 18  avg predicted=0.919  actual positive rate=1.000
 
 Feature signal (standardized logistic regression coefficients):
-  internal_density           -0.867
-  max_pagerank               +0.796
-  entity_reuse_ratio         +0.793
-  avg_order_amount           -0.632
-  cluster_size               +0.486
-  max_degree_centrality      +0.438
-  mean_degree_centrality     +0.418
-  creation_std_days          -0.291
+  entity_reuse_ratio         +0.809
+  max_pagerank               +0.762
+  internal_density           -0.745
+  avg_order_amount           -0.575
+  cluster_size               +0.529
+  max_degree_centrality      +0.502
+  mean_degree_centrality     +0.500
+  creation_std_days          -0.267
   order_amount_cv            +0.244
-  mean_betweenness_centrality +0.168
-  creation_span_days         -0.102
-  max_betweenness_centrality +0.045
-  mean_pagerank              -0.016
+  mean_betweenness_centrality +0.181
+  mean_pagerank              -0.166
+  creation_span_days         -0.089
+  max_betweenness_centrality +0.064
 
 Feature signal (XGBoost importances):
-  cluster_size               0.622
-  entity_reuse_ratio         0.318
-  avg_order_amount           0.060
+  cluster_size               0.700
+  entity_reuse_ratio         0.300
   internal_density           0.000
   mean_degree_centrality     0.000
   max_degree_centrality      0.000
@@ -73,6 +72,7 @@ Feature signal (XGBoost importances):
   max_betweenness_centrality 0.000
   creation_span_days         0.000
   creation_std_days          0.000
+  avg_order_amount           0.000
   order_amount_cv            0.000
 
 Saved cluster_predictions.csv for Day 4 threshold/cost analysis.

@@ -1,0 +1,16 @@
+$ python3 entity_resolution.py
+
+--- stdout ---
+============================================================
+ENTITY RESOLUTION QUALITY (evaluation only)
+============================================================
+device  : 6030/6071 true resources fully reunified (99.3%), 0 false-merge clusters
+payment : 9233/9275 true resources fully reunified (99.5%), 0 false-merge clusters
+address : 9028/9073 true resources fully reunified (99.5%), 3 false-merge clusters
+ip      : 6018/6063 true resources fully reunified (99.3%), 0 false-merge clusters
+
+Saved resolved_account_{device,payment,address,ip}.csv to day1_data/ for graph construction.
+
+
+--- stderr ---
+

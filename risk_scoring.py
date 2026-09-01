@@ -111,10 +111,10 @@ def main():
     features = pd.read_csv("cluster_features.csv")
     clusters = pd.read_csv("clusters.csv")
     predictions = pd.read_csv("cluster_predictions.csv")
-    account_device = pd.read_csv(f"{DATA_DIR}/account_device.csv")
-    account_payment = pd.read_csv(f"{DATA_DIR}/account_payment.csv")
-    account_address = pd.read_csv(f"{DATA_DIR}/account_address.csv")
-    account_ip = pd.read_csv(f"{DATA_DIR}/account_ip.csv")
+    account_device = pd.read_csv(f"{DATA_DIR}/resolved_account_device.csv")
+    account_payment = pd.read_csv(f"{DATA_DIR}/resolved_account_payment.csv")
+    account_address = pd.read_csv(f"{DATA_DIR}/resolved_account_address.csv")
+    account_ip = pd.read_csv(f"{DATA_DIR}/resolved_account_ip.csv")
 
     labels = predictions.set_index("cluster_id").loc[features.cluster_id, "y_true_is_ring"].reset_index(drop=True)
 

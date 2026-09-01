@@ -8,26 +8,26 @@
   interpretable, and uses the same pure graph-topology feature set already
   recommended in Day 3 as the more generalizable result.
 
-## Cluster-level confusion matrix (out-of-fold, 53 clusters)
+## Cluster-level confusion matrix (out-of-fold, 64 clusters)
 | | Predicted: ring | Predicted: not ring |
 |---|---|---|
-| **Actual: ring** | TP = 18 | FN = 0 |
-| **Actual: not ring** | FP = 0 | TN = 35 |
+| **Actual: ring** | TP = 18 | FN = 1 |
+| **Actual: not ring** | FP = 0 | TN = 45 |
 
 - Precision: 1.000
-- Recall: 1.000
+- Recall: 0.947
 
 ## Account-level cost/benefit at this threshold
-- Ring fraud value protected (caught): Rs.428,798.71
-- Ring fraud value still missed: Rs.0.00
-- Legitimate accounts wrongly caught in a flagged cluster: 5 total -- 5 coincidental/benign-lookalike (100%), 0 other (0%)
-- Cost of those false positives, at 1x avg order value per account: Rs.4,469.18
-- **Net: protects Rs.428,799 of fraud at a cost of roughly
-  Rs.4,469 in false-positive review/friction (at a conservative
-  1x-avg-order-value cost assumption) -- a ~96x return.**
+- Ring fraud value protected (caught): Rs.429,536.71
+- Ring fraud value still missed: Rs.9,818.81
+- Legitimate accounts wrongly caught in a flagged cluster: 8 total -- 8 coincidental/benign-lookalike (100%), 0 other (0%)
+- Cost of those false positives, at 1x avg order value per account: Rs.7,150.69
+- **Net: protects Rs.429,537 of fraud at a cost of roughly
+  Rs.7,151 in false-positive review/friction (at a conservative
+  1x-avg-order-value cost assumption) -- a ~60x return.**
 
 ## Honest limitations of this number
-- N=53 clusters (18 flagged at this threshold) -- treat
+- N=64 clusters (18 flagged at this threshold) -- treat
   precision/recall as directionally reliable, not statistically tight.
 - The false-positive cost assumption (1x avg order value per wrongly-
   flagged account) is a modeling choice, not a measured business figure --

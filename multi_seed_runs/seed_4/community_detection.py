@@ -9,6 +9,8 @@ Output: clusters.csv (account_id, cluster_id, cluster_size) for Day 3's
 feature engineering to consume, plus a printed precision/recall summary.
 """
 
+from pathlib import Path
+
 import community as community_louvain
 import pandas as pd
 
@@ -17,11 +19,24 @@ from graph_builder import build_account_graph
 DATA_DIR = "day1_data"
 
 
+def load_resolved(resource: str) -> pd.DataFrame:
+    """Load entity_resolution.py's output for one resource type. Raises a
+    clear error instead of silently falling back to raw (exact-match) IDs
+    if resolution hasn't been run yet."""
+    path = Path(DATA_DIR) / f"resolved_account_{resource}.csv"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} not found. Run `python3 entity_resolution.py` first -- "
+            "the graph is meant to be built on resolved (not raw) resource IDs."
+        )
+    return pd.read_csv(path)
+
+
 def main():
-    account_device = pd.read_csv(f"{DATA_DIR}/account_device.csv")
-    account_payment = pd.read_csv(f"{DATA_DIR}/account_payment.csv")
-    account_address = pd.read_csv(f"{DATA_DIR}/account_address.csv")
-    account_ip = pd.read_csv(f"{DATA_DIR}/account_ip.csv")
+    account_device = load_resolved("device")
+    account_payment = load_resolved("payment")
+    account_address = load_resolved("address")
+    account_ip = load_resolved("ip")
     ground_truth = pd.read_csv(f"{DATA_DIR}/ground_truth.csv")
 
     G = build_account_graph(account_device, account_payment, account_address, account_ip)

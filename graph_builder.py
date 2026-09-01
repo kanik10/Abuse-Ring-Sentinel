@@ -98,10 +98,10 @@ def compute_account_centrality_features(G: nx.Graph,
 
 
 if __name__ == "__main__":
-    account_device = pd.read_csv("day1_data/account_device.csv")
-    account_payment = pd.read_csv("day1_data/account_payment.csv")
-    account_address = pd.read_csv("day1_data/account_address.csv")
-    account_ip = pd.read_csv("day1_data/account_ip.csv")
+    account_device = pd.read_csv("day1_data/resolved_account_device.csv")
+    account_payment = pd.read_csv("day1_data/resolved_account_payment.csv")
+    account_address = pd.read_csv("day1_data/resolved_account_address.csv")
+    account_ip = pd.read_csv("day1_data/resolved_account_ip.csv")
 
     G = build_account_graph(account_device, account_payment, account_address, account_ip)
     print(f"Graph nodes (accounts with >=1 shared resource): {G.number_of_nodes()}")

@@ -47,9 +47,9 @@ Usage:
     python3 multi_seed_eval.py --n-seeds 5        # seeds 1..5
 
 Requires: the pipeline .py files (generate_synthetic_data_v2.py,
-community_detection.py, feature_engineering.py, graph_builder.py,
-classifier.py, final_threshold_report.py) in the same directory as
-this script.
+entity_resolution.py, community_detection.py, feature_engineering.py,
+graph_builder.py, classifier.py, final_threshold_report.py) in the
+same directory as this script.
 """
 
 import argparse
@@ -65,13 +65,14 @@ ROOT = Path(__file__).resolve().parent
 RUNS_DIR = ROOT / "multi_seed_runs"
 
 # Files copied into each seed's isolated directory. Keep this in sync with
-# whatever the real single-run pipeline needs -- entity_resolution.py and
-# risk_scoring.py/app_interactive.py are deliberately excluded: they aren't
-# on the path to metrics_summary.json (entity_resolution's resolved_*.csv
-# outputs aren't read by anything downstream as currently wired; risk_
-# scoring/app_interactive are the demo/serving layer, not the eval chain).
+# whatever the real single-run pipeline needs -- risk_scoring.py/
+# app_interactive.py are still deliberately excluded: they're the demo/
+# serving layer, not on the path to metrics_summary.json. entity_resolution.py
+# IS included: community_detection.py now builds the graph from its
+# resolved_account_*.csv output (day1_data/), not raw resource IDs.
 PIPELINE_FILES = [
     "generate_synthetic_data_v2.py",
+    "entity_resolution.py",
     "graph_builder.py",
     "community_detection.py",
     "feature_engineering.py",
@@ -82,6 +83,7 @@ PIPELINE_FILES = [
 # (script, description) in required execution order.
 STAGES = [
     ("generate_synthetic_data_v2.py", "generating synthetic data (writes day1_data/ directly)"),
+    ("entity_resolution.py", "resolving entity IDs (writes day1_data/resolved_account_*.csv)"),
     ("community_detection.py", "clustering (Louvain)"),
     ("feature_engineering.py", "building cluster features"),
     ("classifier.py", "training / scoring classifier"),

@@ -1,21 +1,21 @@
 $ python3 community_detection.py
 
 --- stdout ---
-Graph: 590 nodes, 3475 edges, 53 connected components
-Louvain communities: 54
-Flagged clusters (size>=2): 54, covering 590 accounts
+Graph: 633 nodes, 4981 edges, 57 connected components
+Louvain communities: 58
+Flagged clusters (size>=2): 58, covering 633 accounts
 
 ============================================================
 DAY 2 SUMMARY — raw graph-structure detection (pre-classifier)
 ============================================================
 Ring accounts total:              511
 Coincidental accounts total:       147
-True positives (ring, flagged):    495
-False positives (coincidental):    95
-False positives (other/unexpected):0
-False negatives (ring, missed):    16
-Precision:                         0.839
-Recall:                            0.969
+True positives (ring, flagged):    511
+False positives (coincidental):    116
+False positives (other/unexpected):6
+False negatives (ring, missed):    0
+Precision:                         0.807
+Recall:                            1.000
 
 Interpretation: this is 'flag everyone in any non-trivial cluster' —
 no scoring or ranking yet. Precision is capped by the fact that pure
