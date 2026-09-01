@@ -25,7 +25,7 @@ from sklearn.preprocessing import StandardScaler
 
 DATA_DIR = "day1_data"
 PURE_GRAPH_FEATURES = ["cluster_size", "entity_reuse_ratio", "internal_density"]
-CHOSEN_THRESHOLD = 0.48111024428768  # locked in Day 4 Phase 3 -- exact value, not rounded
+CHOSEN_THRESHOLD = 0.7732484382694863  # locked in Day 4 Phase 3 -- exact value, not rounded
 
 
 class RecommendedAction(Enum):

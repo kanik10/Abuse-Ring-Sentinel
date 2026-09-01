@@ -2,33 +2,32 @@
 
 ## Chosen model and threshold
 - **Model:** Logistic Regression (pure graph)
-- **Threshold:** 0.48111024428768
-- **Why:** cost-optimal threshold was stable across a 0.1x-50x sweep of
-  false-positive-cost assumptions (Day 4 Phase 2), shifting only at the
-  extreme 100x point. The model is also interpretable, and uses the same
-  pure graph-topology feature set already recommended in Day 3 as the
-  more generalizable result.
+- **Threshold:** 0.7732484382694863
+- **Why:** cost-optimal threshold was stable across the full 0.1x-100x
+  false-positive-cost sweep (Day 4 Phase 2). The model is also
+  interpretable, and uses the same pure graph-topology feature set already
+  recommended in Day 3 as the more generalizable result.
 
-## Cluster-level confusion matrix (out-of-fold, 63 clusters)
+## Cluster-level confusion matrix (out-of-fold, 52 clusters)
 | | Predicted: ring | Predicted: not ring |
 |---|---|---|
-| **Actual: ring** | TP = 19 | FN = 0 |
-| **Actual: not ring** | FP = 0 | TN = 44 |
+| **Actual: ring** | TP = 20 | FN = 0 |
+| **Actual: not ring** | FP = 0 | TN = 32 |
 
 - Precision: 1.000
 - Recall: 1.000
 
 ## Account-level cost/benefit at this threshold
-- Ring fraud value protected (caught): Rs.550,751.26
+- Ring fraud value protected (caught): Rs.545,453.42
 - Ring fraud value still missed: Rs.0.00
-- Legitimate accounts wrongly caught in a flagged cluster: 5 total -- 5 coincidental/benign-lookalike (100%), 0 other (0%)
-- Cost of those false positives, at 1x avg order value per account: Rs.4,443.69
-- **Net: protects Rs.550,751 of fraud at a cost of roughly
-  Rs.4,444 in false-positive review/friction (at a conservative
-  1x-avg-order-value cost assumption) -- a ~124x return.**
+- Legitimate accounts wrongly caught in a flagged cluster: 1 total -- 1 coincidental/benign-lookalike (100%), 0 other (0%)
+- Cost of those false positives, at 1x avg order value per account: Rs.888.74
+- **Net: protects Rs.545,453 of fraud at a cost of roughly
+  Rs.889 in false-positive review/friction (at a conservative
+  1x-avg-order-value cost assumption) -- a ~614x return.**
 
 ## Honest limitations of this number
-- N=63 clusters (19 flagged at this threshold) -- treat
+- N=52 clusters (20 flagged at this threshold) -- treat
   precision/recall as directionally reliable, not statistically tight.
 - The false-positive cost assumption (1x avg order value per wrongly-
   flagged account) is a modeling choice, not a measured business figure --

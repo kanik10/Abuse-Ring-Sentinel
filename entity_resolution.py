@@ -13,9 +13,11 @@ afterward — never as an input to the resolution algorithm.
 """
 
 import difflib
+from pathlib import Path
 
 import pandas as pd
 
+DATA_DIR = Path("day1_data")
 SIMILARITY_THRESHOLD = 0.85
 
 
@@ -66,12 +68,12 @@ def resolve_mapping_table(df: pd.DataFrame, resource_col: str) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    accounts = pd.read_csv("accounts.csv")
-    device = pd.read_csv("account_device.csv")
-    payment = pd.read_csv("account_payment.csv")
-    address = pd.read_csv("account_address.csv")
-    ip = pd.read_csv("account_ip.csv")
-    raw_to_true = pd.read_csv("raw_to_true_resource.csv")
+    accounts = pd.read_csv(DATA_DIR / "accounts.csv")
+    device = pd.read_csv(DATA_DIR / "account_device.csv")
+    payment = pd.read_csv(DATA_DIR / "account_payment.csv")
+    address = pd.read_csv(DATA_DIR / "account_address.csv")
+    ip = pd.read_csv(DATA_DIR / "account_ip.csv")
+    raw_to_true = pd.read_csv(DATA_DIR / "raw_to_true_resource.csv")
 
     resolved_device = resolve_mapping_table(device, "device_id")
     resolved_payment = resolve_mapping_table(payment, "payment_id")

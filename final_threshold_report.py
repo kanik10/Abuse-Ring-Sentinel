@@ -2,8 +2,8 @@
 Day 4 Phase 3 — final_threshold_report.py
 
 Locks in the operating point: Logistic Regression (pure graph topology),
-threshold = 0.481. Chosen because its cost-optimal threshold was stable
-across the 0.1x-50x false-positive-cost sensitivity sweep in Phase 2,
+threshold = 0.773. Chosen because its cost-optimal threshold was stable
+across the 0.1x-100x false-positive-cost sensitivity sweep in Phase 2,
 it is the more interpretable of the model families, and it's the same
 feature set already recommended as the headline result in Day 3 for
 generalizability reasons.
@@ -11,13 +11,15 @@ generalizability reasons.
 Produces final_report.md -- ready to paste into the README/PRD.
 """
 
+import json
+import os
 import pandas as pd
 
 DATA_DIR = "day1_data"
 CHOSEN_MODEL = "Logistic Regression (pure graph)"
 CHOSEN_COLUMN = "oof_prob_logreg_pure_graph"
-CHOSEN_THRESHOLD = 0.48111024428768  # exact value from threshold_sweep_results.csv --
-                                    # NOT the 0.481 rounded for display in Phase 2's
+CHOSEN_THRESHOLD = 0.7732484382694863  # exact value from threshold_sweep_results.csv --
+                                    # NOT the 0.773 rounded for display in Phase 2's
                                     # printout, which can misclassify edge cases
 
 
@@ -89,11 +91,10 @@ def main():
 ## Chosen model and threshold
 - **Model:** {CHOSEN_MODEL}
 - **Threshold:** {CHOSEN_THRESHOLD}
-- **Why:** cost-optimal threshold was stable across a 0.1x-50x sweep of
-  false-positive-cost assumptions (Day 4 Phase 2), shifting only at the
-  extreme 100x point. The model is also interpretable, and uses the same
-  pure graph-topology feature set already recommended in Day 3 as the
-  more generalizable result.
+- **Why:** cost-optimal threshold was stable across the full 0.1x-100x
+  false-positive-cost sweep (Day 4 Phase 2). The model is also
+  interpretable, and uses the same pure graph-topology feature set already
+  recommended in Day 3 as the more generalizable result.
 
 ## Cluster-level confusion matrix (out-of-fold, {n_clusters} clusters)
 | | Predicted: ring | Predicted: not ring |
@@ -128,8 +129,23 @@ def main():
     with open("final_report.md", "w", encoding="utf-8") as f:
         f.write(report)
 
+        summary = {
+        "synth_seed": os.environ.get("SYNTH_SEED"),
+        "chosen_model": CHOSEN_MODEL, "chosen_threshold": CHOSEN_THRESHOLD,
+        "n_clusters": n_clusters, "n_flagged": n_flagged,
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+        "precision": precision, "recall": recall,
+        "ring_value_protected": float(ring_value_protected),
+        "ring_value_missed": float(ring_value_missed),
+        "non_ring_flagged_accounts": non_ring_flagged_accounts,
+        "fp_coincidental": fp_coincidental, "fp_other": fp_other,
+    }
+    with open("metrics_summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
     print(report)
     print("Saved final_report.md")
+    print("Saved metrics_summary.json")
 
 
 if __name__ == "__main__":

@@ -19,12 +19,17 @@ evaluating entity resolution quality ONLY — it must never be used by the
 resolution algorithm itself, same rule as ground_truth.csv for detection.
 """
 
+import os
 import random
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 from faker import Faker
 
-SEED = 42
+# SYNTH_SEED env var lets multi_seed_eval.py drive independent runs without
+# touching any other line of this generator. Unset -> identical to before (42).
+SEED = int(os.environ.get("SYNTH_SEED", 42))
 N_LEGIT = 6000
 N_RINGS = 20
 RING_SIZE_MIN, RING_SIZE_MAX = 5, 40
@@ -37,6 +42,7 @@ SLEEPER_MIN_DAYS, SLEEPER_MAX_DAYS = 60, 400  # how early, relative to burst sta
 N_BRIDGES = 7                    # cross-linking events
 PERTURB_PROB = 0.40              # chance a resource usage is observed "messy"
 RING_BLEND_IN_PROB = 0.45        # fraction of ring accounts that spend normally
+OUTPUT_DIR = Path(os.environ.get("SYNTH_OUTPUT_DIR", "day1_data"))
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -272,19 +278,22 @@ for aid, creation in creation_map.items():
 # ---------------------------------------------------------------- #
 # 6. write everything
 # ---------------------------------------------------------------- #
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def usage_df(mapping_list, resource_col_name):
     df = pd.DataFrame(mapping_list)
     return df.rename(columns={"resource_id": resource_col_name})
 
-pd.DataFrame(accounts).to_csv("accounts.csv", index=False)
-usage_df(account_device, "device_id").to_csv("account_device.csv", index=False)
-usage_df(account_payment, "payment_id").to_csv("account_payment.csv", index=False)
-usage_df(account_address, "address_id").to_csv("account_address.csv", index=False)
-usage_df(account_ip, "ip_id").to_csv("account_ip.csv", index=False)
-pd.DataFrame(orders).to_csv("orders.csv", index=False)
-pd.DataFrame(ground_truth).to_csv("ground_truth.csv", index=False)
-pd.DataFrame(raw_to_true).to_csv("raw_to_true_resource.csv", index=False)
-pd.DataFrame(bridge_log).to_csv("bridge_log.csv", index=False)
+pd.DataFrame(accounts).to_csv(OUTPUT_DIR / "accounts.csv", index=False)
+usage_df(account_device, "device_id").to_csv(OUTPUT_DIR / "account_device.csv", index=False)
+usage_df(account_payment, "payment_id").to_csv(OUTPUT_DIR / "account_payment.csv", index=False)
+usage_df(account_address, "address_id").to_csv(OUTPUT_DIR / "account_address.csv", index=False)
+usage_df(account_ip, "ip_id").to_csv(OUTPUT_DIR / "account_ip.csv", index=False)
+pd.DataFrame(orders).to_csv(OUTPUT_DIR / "orders.csv", index=False)
+pd.DataFrame(ground_truth).to_csv(OUTPUT_DIR / "ground_truth.csv", index=False)
+pd.DataFrame(raw_to_true).to_csv(OUTPUT_DIR / "raw_to_true_resource.csv", index=False)
+pd.DataFrame(bridge_log).to_csv(OUTPUT_DIR / "bridge_log.csv", index=False)
 
 print("=" * 60)
 print("V2 DATA GENERATION SUMMARY")
@@ -300,3 +309,4 @@ print(f"Total resource usages: {len(rtt)}, "
       f"perturbed (messy) observations: {(rtt.observed != rtt.true_id).sum()} "
       f"({(rtt.observed != rtt.true_id).mean():.1%})")
 print(f"IP usages: {len(account_ip)}")
+print(f"Wrote generated CSVs to: {OUTPUT_DIR}")

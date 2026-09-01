@@ -26,7 +26,7 @@ from typing import Dict, Iterable, Set, Tuple
 import pandas as pd
 
 ADDRESS_PATH = Path("resolved_account_address.csv")
-GROUND_TRUTH_PATH = Path("ground_truth.csv")
+GROUND_TRUTH_PATH = Path("day1_data/ground_truth.csv")
 FINAL_REPORT_PATH = Path("final_report.md")
 RESULTS_PATH = Path("naive_baseline_results.csv")
 THRESHOLDS = [3, 4, 5, 6, 8, 10, 12]
