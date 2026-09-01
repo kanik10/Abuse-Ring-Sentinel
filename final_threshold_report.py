@@ -21,6 +21,26 @@ CHOSEN_THRESHOLD = 0.3529693519  # exact value from threshold_sweep_results.csv 
                                    # printout, which would misclassify one cluster
 
 
+def false_positive_breakdown(flagged_accounts: pd.DataFrame) -> tuple[int, int]:
+    """Account-level FP split, using the same definition as Day 2:
+    coincidental_group_id marks the synthetic benign-lookalike sharing
+    groups, and "other" means flagged accounts that are neither ring
+    members nor part of those coincidental groups.
+
+    This split matters because it separates expected hard cases -- benign
+    accounts that coordinate in structurally similar ways -- from
+    unexplained errors, which are the cases worth investigating first.
+    """
+    tp_accounts = int(flagged_accounts.is_ring_member.sum())
+    fp_coincidental = int(flagged_accounts.coincidental_group_id.notna().sum())
+    fp_other = int(len(flagged_accounts) - tp_accounts - fp_coincidental)
+    return fp_coincidental, fp_other
+
+
+def percent(part: int, whole: int) -> float:
+    return 100 * part / whole if whole else 0.0
+
+
 def main():
     predictions = pd.read_csv("cluster_predictions.csv")
     clusters = pd.read_csv("clusters.csv")
@@ -53,8 +73,15 @@ def main():
     ring_value_protected = merged.loc[in_flagged & merged.is_ring_member, "order_value"].sum()
     ring_value_missed = merged.loc[(~in_flagged) & merged.is_ring_member, "order_value"].sum()
     non_ring_flagged_accounts = int((in_flagged & (~merged.is_ring_member)).sum())
+    flagged_accounts = merged[in_flagged]
+    fp_coincidental, fp_other = false_positive_breakdown(flagged_accounts)
+    fp_coincidental_pct = percent(fp_coincidental, non_ring_flagged_accounts)
+    fp_other_pct = percent(fp_other, non_ring_flagged_accounts)
     fp_cost_at_1x = non_ring_flagged_accounts * avg_order_value
 
+    # final_report.md from earlier runs may still contain only the aggregate
+    # FP count; this generated line should reference the stratified breakdown
+    # the next time the report is intentionally regenerated.
     report = f"""# Day 4 Final Report — Abuse-Ring Sentinel Operating Point
 
 ## Chosen model and threshold
@@ -79,7 +106,7 @@ def main():
 ## Account-level cost/benefit at this threshold
 - Ring fraud value protected (caught): Rs.{ring_value_protected:,.2f}
 - Ring fraud value still missed: Rs.{ring_value_missed:,.2f}
-- Legitimate accounts wrongly caught in a flagged cluster: {non_ring_flagged_accounts}
+- Legitimate accounts wrongly caught in a flagged cluster: {non_ring_flagged_accounts} total -- {fp_coincidental} coincidental/benign-lookalike ({fp_coincidental_pct:.0f}%), {fp_other} other ({fp_other_pct:.0f}%)
 - Cost of those false positives, at 1x avg order value per account: Rs.{fp_cost_at_1x:,.2f}
 - **Net: protects Rs.{ring_value_protected:,.0f} of fraud at a cost of roughly
   Rs.{fp_cost_at_1x:,.0f} in false-positive review/friction (at a conservative

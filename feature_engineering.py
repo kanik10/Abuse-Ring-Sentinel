@@ -11,7 +11,8 @@ input feature.
 import networkx as nx
 import pandas as pd
 
-from graph_builder import build_account_graph
+from graph_builder import (CENTRALITY_COLUMNS, build_account_graph,
+                           compute_account_centrality_features)
 
 DATA_DIR = "day1_data"
 
@@ -25,6 +26,11 @@ def compute_cluster_features(clusters: pd.DataFrame,
                               G: nx.Graph) -> pd.DataFrame:
     accounts = accounts.copy()
     accounts["creation_date"] = pd.to_datetime(accounts["creation_date"])
+    account_centrality = (
+        compute_account_centrality_features(G)
+        .set_index("account_id")
+        .reindex(columns=CENTRALITY_COLUMNS)
+    )
 
     flagged = clusters[clusters.cluster_size >= 2]
     rows = []
@@ -64,12 +70,19 @@ def compute_cluster_features(clusters: pd.DataFrame,
         # --- structural density within the cluster ---
         subgraph = G.subgraph(members)
         density = nx.density(subgraph) if n > 1 else 0.0
+        member_centrality = account_centrality.reindex(members).fillna(0.0)
 
         rows.append({
             "cluster_id": cluster_id,
             "cluster_size": n,
             "entity_reuse_ratio": entity_reuse_ratio,
             "internal_density": density,
+            "mean_degree_centrality": member_centrality["degree_centrality"].mean(),
+            "max_degree_centrality": member_centrality["degree_centrality"].max(),
+            "mean_pagerank": member_centrality["pagerank"].mean(),
+            "max_pagerank": member_centrality["pagerank"].max(),
+            "mean_betweenness_centrality": member_centrality["betweenness_centrality"].mean(),
+            "max_betweenness_centrality": member_centrality["betweenness_centrality"].max(),
             "creation_span_days": creation_span_days,
             "creation_std_days": creation_std_days,
             "avg_order_amount": avg_order_amount,
