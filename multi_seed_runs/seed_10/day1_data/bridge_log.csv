@@ -1,0 +1,8 @@
+type,ring,group,resource_type,bridged_account,a,b
+ring_to_coincidental,RING013,COINC0018,ip,ACC0846a2c28e,,
+ring_to_coincidental,RING007,COINC0015,ip,ACC1498af7810,,
+ring_to_ring,,,ip,ACC72abc9c7c6,RING014,RING006
+ring_to_ring,,,payment,ACC18657644f6,RING008,RING007
+ring_to_ring,,,address,ACCafff953924,RING006,RING012
+ring_to_coincidental,RING014,COINC0009,ip,ACCc1cb94dcc9,,
+ring_to_coincidental,RING014,COINC0028,payment,ACCfcc5ad512d,,

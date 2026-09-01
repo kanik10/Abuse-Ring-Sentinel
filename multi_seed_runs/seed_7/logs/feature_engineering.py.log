@@ -1,0 +1,23 @@
+$ python3 feature_engineering.py
+
+--- stdout ---
+Wrote cluster_features.csv — 56 clusters, 13 features each.
+                                   mean         std         min          max
+cluster_id                    27.500000   16.309506    0.000000    55.000000
+cluster_size                   9.589286   11.363061    2.000000    39.000000
+entity_reuse_ratio             0.228197    0.188965    0.071429     0.575000
+internal_density               0.816677    0.255090    0.272727     1.000000
+mean_degree_centrality         0.008800    0.009887    0.001866     0.035251
+max_degree_centrality          0.012460    0.015731    0.001866     0.050373
+mean_pagerank                  0.001862    0.000003    0.001849     0.001879
+max_pagerank                   0.002195    0.000474    0.001862     0.003346
+mean_betweenness_centrality    0.000033    0.000101    0.000000     0.000619
+max_betweenness_centrality     0.000289    0.001334    0.000000     0.009495
+creation_span_days           332.875000  180.476446    4.000000   690.000000
+creation_std_days            172.245418  118.246818    2.828427   487.903679
+avg_order_amount             797.047473  225.406128  336.252000  1293.532500
+order_amount_cv                0.548369    0.171147    0.236422     1.045556
+
+
+--- stderr ---
+

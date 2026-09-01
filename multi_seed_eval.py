@@ -14,25 +14,32 @@ Design choices (see conversation for the full reasoning):
     in the untouched pipeline files. This isolates "does the population
     matter" from "does the model's own randomness matter" -- two
     different questions, only the first is what this script answers.
-  - The classification THRESHOLD is also pinned (0.48111024428768,
-    hardcoded in final_threshold_report.py, unchanged by this script).
-    That means this tests something closer to a real deployment
-    scenario: "if I lock in the operating point I already chose, does
-    it keep working on data it wasn't tuned on" -- not "if I re-tune
-    fresh every time, do I always find *some* good threshold."
+  - The classification THRESHOLD is also pinned (whatever CHOSEN_THRESHOLD
+    is currently hardcoded in final_threshold_report.py -- 0.7732484382694863
+    as of the "Multi seed eval 1" / day1_data-direct-write commit). That
+    means this tests something closer to a real deployment scenario: "if
+    I lock in the operating point I already chose, does it keep working
+    on data it wasn't tuned on" -- not "if I re-tune fresh every time, do
+    I always find *some* good threshold."
   - threshold_sweep.py is intentionally NOT re-run per seed: it isn't on
     the read path of final_threshold_report.py (which uses the hardcoded
     CHOSEN_THRESHOLD constant, not threshold_sweep_results.csv), so
     running it per seed would cost time without affecting the reported
     metric. If you later change final_threshold_report.py to read a
     per-seed-optimal threshold instead, add threshold_sweep.py back into
-    STAGES below.
+    STAGES below -- and note that "recompute the best threshold every
+    seed" answers a different question than the one this script answers
+    now (see conversation).
 
 Each seed gets its own isolated working directory under
-multi_seed_runs/seed_<N>/, with its own day1_data/ subfolder -- this
-replicates the same generate -> copy-to-day1_data -> downstream-scripts
-flow you currently do by hand for a single run, so nothing about the
-pipeline scripts' own file-reading logic has to change.
+multi_seed_runs/seed_<N>/. As of the latest generator commit,
+generate_synthetic_data_v2.py writes its CSVs directly to day1_data/
+(controlled by the SYNTH_OUTPUT_DIR env var, defaulting to "day1_data"
+relative to cwd) -- so running each seed with cwd set to its own
+directory already gives it an isolated day1_data/ with no copy step
+needed. (Earlier versions of this script manually copied root-level
+CSVs into day1_data/; that step is gone because the generator does it
+natively now.)
 
 Usage:
     python3 multi_seed_eval.py                  # seeds 1..15
@@ -47,6 +54,7 @@ this script.
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -71,14 +79,9 @@ PIPELINE_FILES = [
     "final_threshold_report.py",
 ]
 
-DAY1_DATA_FILES = [
-    "accounts.csv", "account_device.csv", "account_payment.csv",
-    "account_address.csv", "account_ip.csv", "ground_truth.csv", "orders.csv",
-]
-
 # (script, description) in required execution order.
 STAGES = [
-    ("generate_synthetic_data_v2.py", "generating synthetic data"),
+    ("generate_synthetic_data_v2.py", "generating synthetic data (writes day1_data/ directly)"),
     ("community_detection.py", "clustering (Louvain)"),
     ("feature_engineering.py", "building cluster features"),
     ("classifier.py", "training / scoring classifier"),
@@ -110,14 +113,19 @@ def run_one_seed(seed: int) -> dict:
     if seed_dir.exists():
         shutil.rmtree(seed_dir)
     seed_dir.mkdir(parents=True)
-    (seed_dir / "day1_data").mkdir()
+    # No manual day1_data/ pre-creation needed -- the generator's own
+    # OUTPUT_DIR.mkdir(parents=True, exist_ok=True) handles it.
 
     for fname in PIPELINE_FILES:
         shutil.copy(ROOT / fname, seed_dir / fname)
 
-    import os
     env = os.environ.copy()
     env["SYNTH_SEED"] = str(seed)
+    # Not strictly required (default is already "day1_data" relative to
+    # cwd, and cwd is already this seed's own isolated directory) -- set
+    # explicitly anyway so this script doesn't silently break if someone
+    # changes the generator's default later.
+    env["SYNTH_OUTPUT_DIR"] = "day1_data"
 
     logs_dir = seed_dir / "logs"
     logs_dir.mkdir()
@@ -134,13 +142,6 @@ def run_one_seed(seed: int) -> dict:
                 "log": str(logs_dir / f"{script}.log"),
             }
         print("ok")
-
-        # Replicate the manual day1_data copy step, but only after the
-        # generator has actually run -- must happen before the next stage
-        # (community_detection.py) reads from day1_data/.
-        if script == "generate_synthetic_data_v2.py":
-            for fname in DAY1_DATA_FILES:
-                shutil.copy(seed_dir / fname, seed_dir / "day1_data" / fname)
 
     summary_path = seed_dir / "metrics_summary.json"
     if not summary_path.exists():
@@ -214,8 +215,12 @@ def main():
         print(f"{'std':>6} {stdev(precisions):>10.3f} {stdev(recalls):>8.3f}\n")
 
         n_perfect = sum(1 for p, r in zip(precisions, recalls) if p == 1.0 and r == 1.0)
+        thresholds_seen = {r["chosen_threshold"] for r in ok}
+        threshold_note = (f"{thresholds_seen.pop():.4f}" if len(thresholds_seen) == 1
+                           else f"WARNING: threshold varied across seeds: {thresholds_seen}")
         print(f"{n_perfect}/{len(ok)} seeds: perfect precision AND recall at the "
-              f"locked threshold (0.4811, tuned on seed 42, unchanged here).")
+              f"locked threshold ({threshold_note}, read live from each run's "
+              f"metrics_summary.json -- not hardcoded here).")
 
         results_path = RUNS_DIR / "multi_seed_results.csv"
         import csv

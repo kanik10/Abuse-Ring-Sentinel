@@ -1,0 +1,18 @@
+$ python3 generate_synthetic_data_v2.py
+
+--- stdout ---
+============================================================
+V2 DATA GENERATION SUMMARY
+============================================================
+Accounts: 6431  (legit 6000, ring 431)
+Rings: 20, sleeper fraction 0.25
+Coincidental groups: 50
+Bridges (cross-links): 7
+Blend-in ring accounts: 204 of 431
+Total resource usages: 31845, perturbed (messy) observations: 10690 (33.6%)
+IP usages: 6482
+Wrote generated CSVs to: day1_data
+
+
+--- stderr ---
+

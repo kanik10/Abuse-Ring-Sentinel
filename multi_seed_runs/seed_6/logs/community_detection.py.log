@@ -1,0 +1,31 @@
+$ python3 community_detection.py
+
+--- stdout ---
+Graph: 482 nodes, 2475 edges, 53 connected components
+Louvain communities: 53
+Flagged clusters (size>=2): 53, covering 482 accounts
+
+============================================================
+DAY 2 SUMMARY — raw graph-structure detection (pre-classifier)
+============================================================
+Ring accounts total:              400
+Coincidental accounts total:       151
+True positives (ring, flagged):    387
+False positives (coincidental):    95
+False positives (other/unexpected):0
+False negatives (ring, missed):    13
+Precision:                         0.803
+Recall:                            0.968
+
+Interpretation: this is 'flag everyone in any non-trivial cluster' —
+no scoring or ranking yet. Precision is capped by the fact that pure
+graph structure can't yet tell a family sharing an address apart from
+a ring sharing a device. That's exactly what Day 3's classifier is for.
+
+Rings split across >1 Louvain cluster: 0 of 20
+
+Saved clusters.csv (account_id, cluster_id, cluster_size) for Day 3.
+
+
+--- stderr ---
+

@@ -1,0 +1,84 @@
+$ python3 classifier.py
+
+--- stdout ---
+Clusters: 57  |  positive (ring): 21  |  negative: 36
+
+======================================================================
+DAY 3 SUMMARY — out-of-fold metrics (5-fold stratified CV, threshold=0.5)
+======================================================================
+Day 2 baseline (flag everyone, no scoring): precision=0.738  recall=0.998
+Logistic Regression   precision=1.000  recall=0.905  f1=0.950  PR-AUC=1.000
+XGBoost (max_depth=3)  precision=1.000  recall=0.905  f1=0.950  PR-AUC=0.992
+
+----------------------------------------------------------------------
+ABLATION — structural + temporal features only (no order-amount features)
+----------------------------------------------------------------------
+LogReg (structural)   precision=1.000  recall=0.905  f1=0.950  PR-AUC=0.996
+XGBoost (structural)  precision=1.000  recall=0.905  f1=0.950  PR-AUC=0.991
+
+Pure graph-topology features used: ['cluster_size', 'entity_reuse_ratio', 'internal_density', 'mean_degree_centrality', 'max_degree_centrality', 'mean_pagerank', 'max_pagerank', 'mean_betweenness_centrality', 'max_betweenness_centrality']
+
+----------------------------------------------------------------------
+ABLATION 2 — pure graph-topology features only (no timing, no order amount)
+----------------------------------------------------------------------
+LogReg (pure graph)   precision=1.000  recall=0.905  f1=0.950  PR-AUC=0.980
+XGBoost (pure graph)  precision=1.000  recall=0.905  f1=0.950  PR-AUC=0.994
+
+======================================================================
+CALIBRATION CHECK — are the risk scores trustworthy as probabilities?
+======================================================================
+
+Logistic Regression (full) -- Brier score: 0.0183  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 37  avg predicted=0.032  actual positive rate=0.027
+  predicted [0.4-0.6): n=  1  avg predicted=0.436  actual positive rate=1.000
+  predicted [0.8-1.0): n= 19  avg predicted=0.985  actual positive rate=1.000
+
+XGBoost (full) -- Brier score: 0.0345  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 38  avg predicted=0.043  actual positive rate=0.053
+  predicted [0.8-1.0): n= 19  avg predicted=0.928  actual positive rate=1.000
+
+Logistic Regression (pure graph) -- Brier score: 0.0251  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 37  avg predicted=0.044  actual positive rate=0.027
+  predicted [0.4-0.6): n=  1  avg predicted=0.421  actual positive rate=1.000
+  predicted [0.6-0.8): n=  1  avg predicted=0.672  actual positive rate=1.000
+  predicted [0.8-1.0): n= 18  avg predicted=0.992  actual positive rate=1.000
+
+XGBoost (pure graph) -- Brier score: 0.0343  (0=perfect, 0.25=uninformative, 1=worst)
+  predicted [0.0-0.2): n= 38  avg predicted=0.040  actual positive rate=0.053
+  predicted [0.8-1.0): n= 19  avg predicted=0.934  actual positive rate=1.000
+
+Feature signal (standardized logistic regression coefficients):
+  avg_order_amount           -1.221
+  entity_reuse_ratio         +0.908
+  internal_density           -0.758
+  max_pagerank               +0.691
+  creation_std_days          -0.485
+  creation_span_days         -0.342
+  mean_degree_centrality     +0.323
+  max_degree_centrality      +0.322
+  cluster_size               +0.321
+  order_amount_cv            +0.152
+  mean_betweenness_centrality +0.080
+  max_betweenness_centrality +0.048
+  mean_pagerank              -0.026
+
+Feature signal (XGBoost importances):
+  internal_density           0.431
+  entity_reuse_ratio         0.391
+  max_pagerank               0.110
+  avg_order_amount           0.040
+  order_amount_cv            0.015
+  creation_std_days          0.008
+  creation_span_days         0.005
+  cluster_size               0.000
+  mean_degree_centrality     0.000
+  max_degree_centrality      0.000
+  mean_pagerank              0.000
+  mean_betweenness_centrality 0.000
+  max_betweenness_centrality 0.000
+
+Saved cluster_predictions.csv for Day 4 threshold/cost analysis.
+
+
+--- stderr ---
+

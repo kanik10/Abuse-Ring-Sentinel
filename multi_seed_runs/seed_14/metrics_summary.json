@@ -1,0 +1,18 @@
+{
+  "synth_seed": "14",
+  "chosen_model": "Logistic Regression (pure graph)",
+  "chosen_threshold": 0.7732484382694863,
+  "n_clusters": 56,
+  "n_flagged": 17,
+  "tp": 17,
+  "fp": 0,
+  "fn": 2,
+  "tn": 37,
+  "precision": 1.0,
+  "recall": 0.8947368421052632,
+  "ring_value_protected": 440136.57,
+  "ring_value_missed": 5738.2300000000005,
+  "non_ring_flagged_accounts": 5,
+  "fp_coincidental": 5,
+  "fp_other": 0
+}
