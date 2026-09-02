@@ -82,8 +82,13 @@ PIPELINE_FILES = [
     "community_detection.py",
     "feature_engineering.py",
     "classifier.py",
-    "final_threshold_report.py",
-    "naive_baseline.py",
+    "threshold_sweep.py",        # not run as its own stage here, but
+    "bootstrap_threshold_ci.py", # final_threshold_report.py now imports
+    "final_threshold_report.py", # from bootstrap_threshold_ci.py, which
+    "naive_baseline.py",         # imports from threshold_sweep.py (Day 6
+                                  # Phase 2) -- both must be present even
+                                  # though only final_threshold_report.py
+                                  # is invoked directly.
 ]
 
 # (script, description) in required execution order. naive_baseline.py runs

@@ -36,3 +36,18 @@
   (out-of-fold within that one dataset, not a separate holdout population).
   A genuinely held-out second synthetic population, or real data, would be
   needed before trusting this threshold in production.
+
+## Threshold stability (bootstrap, B=10000 resamples)
+Nonparametric percentile bootstrap over clusters, resampled with
+replacement. Answers a different question than the confusion matrix
+above: not "how good is this threshold" but "how much would a different
+draw of clusters have changed the answer."
+
+- Precision at the locked threshold: 95% CI = [1.000, 1.000]
+- Recall at the locked threshold: 95% CI = [1.000, 1.000]
+- Total cost at the locked threshold: 95% CI = [Rs.0, Rs.4,451]
+- Each resample's OWN cost-optimal threshold: min=0.6127, median=0.6127, max=0.9859
+- 0.0% of resamples had their own optimum within
+  +/-0.05 of the locked threshold (0.4811) -- read this as
+  how confidently "single" this operating point really is, not as an
+  error bar on precision/recall.

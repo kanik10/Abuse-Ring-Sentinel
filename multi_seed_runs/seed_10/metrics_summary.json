@@ -14,5 +14,19 @@
   "ring_value_missed": 0.0,
   "non_ring_flagged_accounts": 8,
   "fp_coincidental": 8,
-  "fp_other": 0
+  "fp_other": 0,
+  "bootstrap_precision_ci": [
+    1.0,
+    1.0
+  ],
+  "bootstrap_recall_ci": [
+    1.0,
+    1.0
+  ],
+  "bootstrap_cost_ci": [
+    0.0,
+    16898.61142170733
+  ],
+  "bootstrap_best_threshold_median": 0.7967236157874034,
+  "bootstrap_pct_near_locked_threshold": 0.0
 }
