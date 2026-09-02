@@ -1,0 +1,24 @@
+$ python3 naive_baseline.py
+
+--- stdout ---
+NAIVE BASELINE -- shared resolved-address groups only
+ threshold_n  predicted_positive_accounts precision recall    f1 accuracy
+           3                          430     0.951  0.836 0.890    0.984
+           4                          421     0.971  0.836 0.899    0.986
+           5                          382     1.000  0.781 0.877    0.984
+           6                          362     1.000  0.740 0.851    0.980
+           8                          348     1.000  0.712 0.832    0.978
+          10                          304     1.000  0.622 0.767    0.971
+          12                          240     1.000  0.491 0.658    0.962
+
+Comparison
+Naive best-case threshold after scoring: N=4  precision=0.971  recall=0.836  f1=0.899
+Real pipeline from final_report.md: Logistic Regression (pure graph) at threshold=0.7732484382694863  precision=1.000  recall=0.950
+
+Note: the naive best-F1 threshold is selected retrospectively with ground truth, so it is a best-case baseline, not a blind operating threshold.
+
+Saved naive_baseline_results.csv
+
+
+--- stderr ---
+

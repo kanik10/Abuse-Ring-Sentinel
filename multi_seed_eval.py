@@ -48,11 +48,12 @@ Usage:
 
 Requires: the pipeline .py files (generate_synthetic_data_v2.py,
 entity_resolution.py, community_detection.py, feature_engineering.py,
-graph_builder.py, classifier.py, final_threshold_report.py) in the
-same directory as this script.
+graph_builder.py, classifier.py, final_threshold_report.py,
+naive_baseline.py) in the same directory as this script.
 """
 
 import argparse
+import csv
 import json
 import os
 import shutil
@@ -70,6 +71,10 @@ RUNS_DIR = ROOT / "multi_seed_runs"
 # serving layer, not on the path to metrics_summary.json. entity_resolution.py
 # IS included: community_detection.py now builds the graph from its
 # resolved_account_*.csv output (day1_data/), not raw resource IDs.
+# naive_baseline.py IS included too: the headline claim isn't just "precision/
+# recall is stable across seeds" but "it beats the naive baseline" -- that
+# comparison needs re-checking per seed as well, not just on the one
+# canonical run that final_report.md happens to describe.
 PIPELINE_FILES = [
     "generate_synthetic_data_v2.py",
     "entity_resolution.py",
@@ -78,9 +83,12 @@ PIPELINE_FILES = [
     "feature_engineering.py",
     "classifier.py",
     "final_threshold_report.py",
+    "naive_baseline.py",
 ]
 
-# (script, description) in required execution order.
+# (script, description) in required execution order. naive_baseline.py runs
+# last because it reads final_report.md, which final_threshold_report.py
+# writes.
 STAGES = [
     ("generate_synthetic_data_v2.py", "generating synthetic data (writes day1_data/ directly)"),
     ("entity_resolution.py", "resolving entity IDs (writes day1_data/resolved_account_*.csv)"),
@@ -88,6 +96,7 @@ STAGES = [
     ("feature_engineering.py", "building cluster features"),
     ("classifier.py", "training / scoring classifier"),
     ("final_threshold_report.py", "applying locked threshold"),
+    ("naive_baseline.py", "naive shared-address baseline (for comparison)"),
 ]
 
 
@@ -107,10 +116,27 @@ def run_stage(script: str, cwd: Path, env: dict, log_path: Path) -> bool:
     return result.returncode == 0
 
 
+def load_naive_baseline_best(path: Path) -> dict:
+    """Picks the best row from naive_baseline_results.csv using the exact
+    same selection rule naive_baseline.py itself uses (highest F1, then
+    precision, then recall), so this stays consistent with what a single
+    run of that script would report as "the" naive result."""
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    best = max(rows, key=lambda r: (float(r["f1"]), float(r["precision"]), float(r["recall"])))
+    return {
+        "naive_threshold_n": int(float(best["threshold_n"])),
+        "naive_precision": float(best["precision"]),
+        "naive_recall": float(best["recall"]),
+        "naive_f1": float(best["f1"]),
+    }
+
+
 def run_one_seed(seed: int) -> dict:
     """Runs the full pipeline for one seed in an isolated directory.
-    Returns a result dict -- either the parsed metrics_summary.json plus
-    seed/status, or a status='failed' dict with a pointer to the stage log."""
+    Returns a result dict -- either the parsed metrics_summary.json (plus
+    the naive baseline's best row and seed/status), or a status='failed'
+    dict with a pointer to the stage log."""
     seed_dir = RUNS_DIR / f"seed_{seed}"
     if seed_dir.exists():
         shutil.rmtree(seed_dir)
@@ -151,7 +177,14 @@ def run_one_seed(seed: int) -> dict:
                 "failed_stage": "final_threshold_report.py (no summary written)",
                 "log": str(logs_dir / "final_threshold_report.py.log")}
 
+    naive_path = seed_dir / "naive_baseline_results.csv"
+    if not naive_path.exists():
+        return {"seed": seed, "status": "failed",
+                "failed_stage": "naive_baseline.py (no results written)",
+                "log": str(logs_dir / "naive_baseline.py.log")}
+
     summary = json.loads(summary_path.read_text())
+    summary.update(load_naive_baseline_best(naive_path))
     summary["seed"] = seed
     summary["status"] = "ok"
     return summary
@@ -204,16 +237,29 @@ def main():
     if ok:
         precisions = [r["precision"] for r in ok]
         recalls = [r["recall"] for r in ok]
+        naive_precisions = [r["naive_precision"] for r in ok]
+        naive_recalls = [r["naive_recall"] for r in ok]
+        naive_f1s = [r["naive_f1"] for r in ok]
+
+        def f1_of(p, r):
+            return 2 * p * r / (p + r) if (p + r) else 0.0
+
+        real_f1s = [f1_of(r["precision"], r["recall"]) for r in ok]
+
         header = (f"{'seed':>6} {'precision':>10} {'recall':>8} "
-                  f"{'tp':>4} {'fp':>4} {'fn':>4} {'tn':>4} {'n_flagged':>10}")
+                  f"{'tp':>4} {'fp':>4} {'fn':>4} {'tn':>4} {'n_flagged':>10} "
+                  f"{'naive_p':>8} {'naive_r':>8} {'naive_f1':>9}")
         print(header)
         print("-" * len(header))
         for r in ok:
             print(f"{r['seed']:>6} {r['precision']:>10.3f} {r['recall']:>8.3f} "
                   f"{r['tp']:>4} {r['fp']:>4} {r['fn']:>4} {r['tn']:>4} "
-                  f"{r['n_flagged']:>10}")
+                  f"{r['n_flagged']:>10} "
+                  f"{r['naive_precision']:>8.3f} {r['naive_recall']:>8.3f} {r['naive_f1']:>9.3f}")
         print("-" * len(header))
-        print(f"{'mean':>6} {mean(precisions):>10.3f} {mean(recalls):>8.3f}")
+        print(f"{'mean':>6} {mean(precisions):>10.3f} {mean(recalls):>8.3f} "
+              f"{'':>4} {'':>4} {'':>4} {'':>4} {'':>10} "
+              f"{mean(naive_precisions):>8.3f} {mean(naive_recalls):>8.3f} {mean(naive_f1s):>9.3f}")
         print(f"{'std':>6} {stdev(precisions):>10.3f} {stdev(recalls):>8.3f}\n")
 
         n_perfect = sum(1 for p, r in zip(precisions, recalls) if p == 1.0 and r == 1.0)
@@ -224,8 +270,12 @@ def main():
               f"locked threshold ({threshold_note}, read live from each run's "
               f"metrics_summary.json -- not hardcoded here).")
 
+        n_beats_naive = sum(1 for rf1, nf1 in zip(real_f1s, naive_f1s) if rf1 > nf1)
+        print(f"{n_beats_naive}/{len(ok)} seeds: real pipeline's F1 beat the naive "
+              f"best-case (retrospectively F1-tuned) shared-address baseline "
+              f"(mean F1 -- real: {mean(real_f1s):.3f}, naive: {mean(naive_f1s):.3f}).")
+
         results_path = RUNS_DIR / "multi_seed_results.csv"
-        import csv
         with open(results_path, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(ok[0].keys()))
             w.writeheader()
