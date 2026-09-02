@@ -18,8 +18,8 @@ import pandas as pd
 DATA_DIR = "day1_data"
 CHOSEN_MODEL = "Logistic Regression (pure graph)"
 CHOSEN_COLUMN = "oof_prob_logreg_pure_graph"
-CHOSEN_THRESHOLD = 0.7732484382694863  # exact value from threshold_sweep_results.csv --
-                                    # NOT the 0.773 rounded for display in Phase 2's
+CHOSEN_THRESHOLD = 0.48111024428768  # exact value from threshold_sweep_results.csv --
+                                    # NOT the 0.481 rounded for display in Phase 2's
                                     # printout, which can misclassify edge cases
 
 

@@ -1,7 +1,7 @@
 {
   "synth_seed": "5",
   "chosen_model": "Logistic Regression (pure graph)",
-  "chosen_threshold": 0.7732484382694863,
+  "chosen_threshold": 0.48111024428768,
   "n_clusters": 62,
   "n_flagged": 20,
   "tp": 20,

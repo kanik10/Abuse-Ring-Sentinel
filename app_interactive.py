@@ -40,7 +40,7 @@ from graph_builder import build_account_graph
 from feature_engineering import compute_cluster_features
 
 PURE_GRAPH_FEATURES = ["cluster_size", "entity_reuse_ratio", "internal_density"]
-DEFAULT_THRESHOLD = 0.7732484382694863
+DEFAULT_THRESHOLD = 0.48111024428768
 FEATURE_LABELS = {
     "cluster_size": "Cluster size",
     "entity_reuse_ratio": "Entity reuse ratio",

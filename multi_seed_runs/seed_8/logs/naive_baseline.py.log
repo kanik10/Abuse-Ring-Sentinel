@@ -13,7 +13,7 @@ NAIVE BASELINE -- shared resolved-address groups only
 
 Comparison
 Naive best-case threshold after scoring: N=3  precision=0.940  recall=0.795  f1=0.861
-Real pipeline from final_report.md: Logistic Regression (pure graph) at threshold=0.7732484382694863  precision=1.000  recall=0.947
+Real pipeline from final_report.md: Logistic Regression (pure graph) at threshold=0.48111024428768  precision=1.000  recall=1.000
 
 Note: the naive best-F1 threshold is selected retrospectively with ground truth, so it is a best-case baseline, not a blind operating threshold.
 

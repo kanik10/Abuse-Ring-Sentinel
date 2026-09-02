@@ -2,7 +2,7 @@
 
 ## Chosen model and threshold
 - **Model:** Logistic Regression (pure graph)
-- **Threshold:** 0.7732484382694863
+- **Threshold:** 0.48111024428768  
 - **Why:** cost-optimal threshold was stable across the full 0.1x-100x
   false-positive-cost sweep (Day 4 Phase 2). The model is also
   interpretable, and uses the same pure graph-topology feature set already
