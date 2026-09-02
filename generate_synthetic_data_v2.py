@@ -44,6 +44,25 @@ PERTURB_PROB = 0.40              # chance a resource usage is observed "messy"
 RING_BLEND_IN_PROB = 0.45        # fraction of ring accounts that spend normally
 OUTPUT_DIR = Path(os.environ.get("SYNTH_OUTPUT_DIR", "day1_data"))
 
+# ---- Referral-ring parameters -------------------------------------------- #
+# Referral rings exploit a referral-bonus program. Members share one IP (a
+# weak resource-sharing signal that creates a Louvain cluster) but deliberately
+# avoid sharing devices/payments/addresses to evade the resource-sharing
+# detector.  The referral chain is the primary fraud fingerprint.
+N_REFERRAL_RINGS = 8
+REFERRAL_RING_TRUNK_FANOUT_MIN = 2  # mastermind refers this many accounts directly
+REFERRAL_RING_TRUNK_FANOUT_MAX = 4
+REFERRAL_CHAIN_DEPTH_LAMBDA = 2.0   # Poisson lambda for per-trunk chain depth
+REFERRAL_CHAIN_DEPTH_MAX = 4        # clip depth at this value
+REFERRAL_ACTIVATION_DAYS_RING = 7   # ring: referred account activates within N days
+REFERRAL_ACTIVATION_DAYS_ORGANIC = 30  # organic: wider spread
+REFERRAL_ACTIVATION_RATE = 0.92     # 92% of ring referrals activate (not 100%)
+RING_REFERRAL_CYCLE_PROB = 0.35     # probability a ring has a closing cycle edge
+N_ORGANIC_REFERRERS_FRAC = 0.15     # fraction of legit accounts that refer others
+ORGANIC_REFERRAL_MAX_FANOUT = 4     # max accounts a legit referrer refers
+ORGANIC_REFERRAL_ACTIVATION_RATE = 0.70  # 30% dropout — realistic
+REFERRAL_BONUS_MIN, REFERRAL_BONUS_MAX = 150.0, 500.0  # Rs per referral bonus
+
 random.seed(SEED)
 np.random.seed(SEED)
 fake = Faker()
@@ -98,12 +117,15 @@ def perturb(s: str) -> str:
 # storage
 # ---------------------------------------------------------------- #
 accounts = []
-account_device = []       # observed (perturbed) strings — what the pipeline sees
+account_device = []       # observed (perturbed) strings -- what the pipeline sees
 account_payment = []
 account_address = []
 account_ip = []
 raw_to_true = []           # evaluation-only mapping: observed string -> true resource id
 ground_truth = []
+referrals = []             # referrer_id, referred_id, referral_date, bonus_amount
+referral_ground_truth_rows = []  # eval only: referrer_id, referred_id, is_ring_referral
+referral_ring_member_ids = set()
 
 
 def add_account_row(aid, creation_date):
@@ -137,7 +159,8 @@ for _ in range(N_LEGIT):
         record_usage(account_address, "address", aid, new_id("address"))
 
     ground_truth.append({"account_id": aid, "ring_id": None,
-                          "is_ring_member": False, "coincidental_group_id": None})
+                          "is_ring_member": False, "coincidental_group_id": None,
+                          "referral_ring_id": None, "is_referral_ring_member": False})
 
 gt_index = {row["account_id"]: row for row in ground_truth}
 
@@ -213,12 +236,163 @@ for r in range(N_RINGS):
         ring_behavior[aid] = "blend_in" if random.random() < RING_BLEND_IN_PROB else "suspicious"
 
         ground_truth.append({"account_id": aid, "ring_id": ring_id,
-                              "is_ring_member": True, "coincidental_group_id": None})
+                              "is_ring_member": True, "coincidental_group_id": None,
+                              "referral_ring_id": None, "is_referral_ring_member": False})
 
 gt_index = {row["account_id"]: row for row in ground_truth}
 
 # ---------------------------------------------------------------- #
-# 4. bridges — deliberate cross-links for Louvain to actually resolve
+# 3b. referral rings — hybrid trunk-branch topology
+#
+# Each ring:  mastermind (M) refers TRUNK_FANOUT accounts; each trunk
+# account refers a depth-d chain (d ~ Poisson(2), clip [1,4]).  All ring
+# members share ONE ring-specific IP, creating a weak Louvain cluster
+# (entity_reuse_ratio ~0.25) that the resource-sharing classifier alone
+# will not flag above the threshold — the referral features close that gap.
+#
+# With RING_REFERRAL_CYCLE_PROB a leaf account refers back to M, creating
+# a directed cycle.  This is rare in organic referral trees (DAGs) but
+# deliberate in bonus-farming rings.
+# ---------------------------------------------------------------- #
+for r in range(N_REFERRAL_RINGS):
+    rref_id = f"RREF{r:03d}"
+    ring_shared_ip = new_id("ip")  # one IP shared by ALL members of this referral ring
+    trunk_fanout = random.randint(REFERRAL_RING_TRUNK_FANOUT_MIN, REFERRAL_RING_TRUNK_FANOUT_MAX)
+
+    # --- mastermind account ---
+    m_aid = new_id("account")
+    m_creation = random_date(START_DATE, END_DATE - pd.Timedelta(days=180))
+    add_account_row(m_aid, m_creation)
+    record_usage(account_device, "device", m_aid, new_id("device"))  # unique device
+    record_usage(account_ip, "ip", m_aid, ring_shared_ip)            # shared IP
+    record_usage(account_payment, "payment", m_aid, new_id("payment"))  # unique payment
+    record_usage(account_address, "address", m_aid, new_id("address"))  # unique address
+    ground_truth.append({"account_id": m_aid, "ring_id": None,
+                          "is_ring_member": False, "coincidental_group_id": None,
+                          "referral_ring_id": rref_id, "is_referral_ring_member": True})
+    gt_index[m_aid] = ground_truth[-1]
+    referral_ring_member_ids.add(m_aid)
+
+    chain_leaves = []  # (account_id, last_referral_date) for cycle-closing
+
+    for t in range(trunk_fanout):
+        # --- trunk account (M refers this one directly) ---
+        t_aid = new_id("account")
+        t_ref_date = m_creation + pd.Timedelta(days=random.randint(5, 30))
+        t_creation = t_ref_date - pd.Timedelta(days=random.randint(0, 3))  # created just before referral
+        if t_creation < START_DATE:
+            t_creation = START_DATE
+        add_account_row(t_aid, t_creation)
+        record_usage(account_device, "device", t_aid, new_id("device"))
+        record_usage(account_ip, "ip", t_aid, ring_shared_ip)
+        record_usage(account_payment, "payment", t_aid, new_id("payment"))
+        record_usage(account_address, "address", t_aid, new_id("address"))
+        ground_truth.append({"account_id": t_aid, "ring_id": None,
+                              "is_ring_member": False, "coincidental_group_id": None,
+                              "referral_ring_id": rref_id, "is_referral_ring_member": True})
+        gt_index[t_aid] = ground_truth[-1]
+        referral_ring_member_ids.add(t_aid)
+
+        bonus = round(random.uniform(REFERRAL_BONUS_MIN, REFERRAL_BONUS_MAX), 2)
+        referrals.append({"referrer_id": m_aid, "referred_id": t_aid,
+                           "referral_date": t_ref_date, "bonus_amount": bonus})
+        referral_ground_truth_rows.append({"referrer_id": m_aid, "referred_id": t_aid,
+                                           "is_ring_referral": True})
+
+        # --- chain accounts hanging from this trunk ---
+        chain_depth = min(max(1, int(np.random.poisson(REFERRAL_CHAIN_DEPTH_LAMBDA))),
+                          REFERRAL_CHAIN_DEPTH_MAX)
+        prev_aid = t_aid
+        prev_ref_date = t_ref_date
+
+        for d in range(chain_depth):
+            c_aid = new_id("account")
+            c_ref_date = prev_ref_date + pd.Timedelta(days=random.randint(2, 7))
+            c_creation = c_ref_date - pd.Timedelta(days=random.randint(0, 3))
+            if c_creation < START_DATE:
+                c_creation = START_DATE
+            if c_creation > END_DATE:
+                break  # out of data range
+            add_account_row(c_aid, c_creation)
+            record_usage(account_device, "device", c_aid, new_id("device"))
+            record_usage(account_ip, "ip", c_aid, ring_shared_ip)
+            record_usage(account_payment, "payment", c_aid, new_id("payment"))
+            record_usage(account_address, "address", c_aid, new_id("address"))
+            ground_truth.append({"account_id": c_aid, "ring_id": None,
+                                  "is_ring_member": False, "coincidental_group_id": None,
+                                  "referral_ring_id": rref_id, "is_referral_ring_member": True})
+            gt_index[c_aid] = ground_truth[-1]
+            referral_ring_member_ids.add(c_aid)
+
+            bonus = round(random.uniform(REFERRAL_BONUS_MIN, REFERRAL_BONUS_MAX), 2)
+            referrals.append({"referrer_id": prev_aid, "referred_id": c_aid,
+                               "referral_date": c_ref_date, "bonus_amount": bonus})
+            referral_ground_truth_rows.append({"referrer_id": prev_aid, "referred_id": c_aid,
+                                               "is_ring_referral": True})
+            prev_aid = c_aid
+            prev_ref_date = c_ref_date
+
+        chain_leaves.append((prev_aid, prev_ref_date))
+
+    # --- optional cycle: last chain leaf refers back to mastermind ---
+    # Use the mastermind creation date as the cycle reference to guarantee
+    # it lands within the data window regardless of chain length.
+    if random.random() < RING_REFERRAL_CYCLE_PROB and chain_leaves:
+        leaf_aid, leaf_ref_date = random.choice(chain_leaves)
+        # Cycle date = day after the leaf's referral date (guaranteed in-range
+        # because c_ref_date is already capped to END_DATE)
+        cycle_date = leaf_ref_date + pd.Timedelta(days=random.randint(1, 3))
+        cycle_date = min(cycle_date, END_DATE)
+        bonus = round(random.uniform(REFERRAL_BONUS_MIN, REFERRAL_BONUS_MAX), 2)
+        referrals.append({"referrer_id": leaf_aid, "referred_id": m_aid,
+                           "referral_date": cycle_date, "bonus_amount": bonus})
+        referral_ground_truth_rows.append({"referrer_id": leaf_aid, "referred_id": m_aid,
+                                           "is_ring_referral": True})
+
+# Re-index gt_index after all ring and referral-ring additions
+gt_index = {row["account_id"]: row for row in ground_truth}
+
+# ---------------------------------------------------------------- #
+# 3c. organic referral baseline
+#
+# Without organic referrals in the data, ANY referral edge is trivially
+# suspicious -- the model would learn "has referral edge => ring" rather
+# than learning the structural features that distinguish ring chains from
+# organic ones.  15% of legit accounts refer 1-4 others, with 70%
+# activation and a 0-30 day spread (vs ring's 0-7 days).
+# ---------------------------------------------------------------- #
+n_organic_referrers = int(N_LEGIT * N_ORGANIC_REFERRERS_FRAC)
+organic_referrer_pool = random.sample(legit_ids, n_organic_referrers)
+organic_referred_already = set()  # prevent an account being referred twice
+
+for referrer_id in organic_referrer_pool:
+    referrer_creation = next(
+        (a["creation_date"] for a in accounts if a["account_id"] == referrer_id), None
+    )
+    if referrer_creation is None:
+        continue
+    referrer_creation = pd.Timestamp(referrer_creation)
+    n_referrals = random.randint(1, ORGANIC_REFERRAL_MAX_FANOUT)
+    # Sample referred accounts from legit pool, excluding referrer and already-referred
+    candidates = [aid for aid in legit_ids
+                  if aid != referrer_id and aid not in organic_referred_already
+                  and aid not in referral_ring_member_ids]
+    if len(candidates) < n_referrals:
+        continue
+    referred_batch = random.sample(candidates, n_referrals)
+    for referred_id in referred_batch:
+        organic_referred_already.add(referred_id)
+        ref_date = referrer_creation + pd.Timedelta(days=random.randint(10, 200))
+        if ref_date > END_DATE:
+            ref_date = END_DATE
+        bonus = round(random.uniform(REFERRAL_BONUS_MIN, REFERRAL_BONUS_MAX), 2)
+        referrals.append({"referrer_id": referrer_id, "referred_id": referred_id,
+                           "referral_date": ref_date, "bonus_amount": bonus})
+        referral_ground_truth_rows.append({"referrer_id": referrer_id, "referred_id": referred_id,
+                                           "is_ring_referral": False})
+
+# ---------------------------------------------------------------- #
+# 4. bridges -- deliberate cross-links for Louvain to actually resolve
 # ---------------------------------------------------------------- #
 ring_ids_list = list(ring_resource_pools.keys())
 coincidental_ids_list = list(coincidental_resources.keys())
@@ -294,12 +468,21 @@ pd.DataFrame(orders).to_csv(OUTPUT_DIR / "orders.csv", index=False)
 pd.DataFrame(ground_truth).to_csv(OUTPUT_DIR / "ground_truth.csv", index=False)
 pd.DataFrame(raw_to_true).to_csv(OUTPUT_DIR / "raw_to_true_resource.csv", index=False)
 pd.DataFrame(bridge_log).to_csv(OUTPUT_DIR / "bridge_log.csv", index=False)
+# Referral tables
+# referrals.csv  -- pipeline input (NO label column)
+# referral_ground_truth.csv -- evaluation only (has is_ring_referral label)
+pd.DataFrame(referrals).to_csv(OUTPUT_DIR / "referrals.csv", index=False)
+pd.DataFrame(referral_ground_truth_rows).to_csv(OUTPUT_DIR / "referral_ground_truth.csv", index=False)
 
 print("=" * 60)
 print("V2 DATA GENERATION SUMMARY")
 print("=" * 60)
-print(f"Accounts: {len(accounts)}  (legit {N_LEGIT}, ring {len(ring_member_ids)})")
-print(f"Rings: {N_RINGS}, sleeper fraction {SLEEPER_FRACTION}")
+print(f"Accounts: {len(accounts)}  (legit {N_LEGIT}, ring {len(ring_member_ids)}, "
+      f"referral-ring {len(referral_ring_member_ids)})")
+print(f"Resource-sharing rings: {N_RINGS}, sleeper fraction {SLEEPER_FRACTION}")
+print(f"Referral rings: {N_REFERRAL_RINGS} "
+      f"(referral edges: {len([r for r in referral_ground_truth_rows if r['is_ring_referral']])} ring, "
+      f"{len([r for r in referral_ground_truth_rows if not r['is_ring_referral']])} organic)")
 print(f"Coincidental groups: {N_COINCIDENTAL_GROUPS}")
 print(f"Bridges (cross-links): {len(bridge_log)}")
 print(f"Blend-in ring accounts: {sum(1 for v in ring_behavior.values() if v == 'blend_in')} "

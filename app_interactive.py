@@ -39,6 +39,7 @@ import community as community_louvain
 from graph_builder import build_account_graph
 from feature_engineering import compute_cluster_features
 from account_scoring import score_accounts_in_cluster
+from referral_features import compute_referral_features, REFERRAL_FEATURE_COLS
 
 PURE_GRAPH_FEATURES = ["cluster_size", "entity_reuse_ratio", "internal_density"]
 from threshold_config import CHOSEN_THRESHOLD as DEFAULT_THRESHOLD  # reads pooled_threshold_selection_summary.json;
@@ -74,6 +75,12 @@ def load_model():
 @st.cache_data
 def load_bundled_demo_data():
     d = "day1_data"
+    from pathlib import Path
+    referrals = (
+        pd.read_csv(f"{d}/referrals.csv")
+        if Path(f"{d}/referrals.csv").exists()
+        else pd.DataFrame(columns=["referrer_id", "referred_id", "referral_date", "bonus_amount"])
+    )
     return (
         pd.read_csv(f"{d}/accounts.csv"),
         pd.read_csv(f"{d}/resolved_account_device.csv"),
@@ -82,6 +89,7 @@ def load_bundled_demo_data():
         pd.read_csv(f"{d}/resolved_account_ip.csv"),
         pd.read_csv(f"{d}/orders.csv"),
         pd.read_csv(f"{d}/ground_truth.csv"),
+        referrals,
     )
 
 
@@ -485,7 +493,8 @@ def compute_local_shap(model, features, selected):
 
 
 @st.cache_data(show_spinner=False)
-def run_pipeline(accounts, account_device, account_payment, account_address, account_ip, orders):
+def run_pipeline(accounts, account_device, account_payment, account_address,
+                 account_ip, orders, referrals=None):
     G = build_account_graph(account_device, account_payment, account_address, account_ip)
     if G.number_of_nodes() == 0:
         return None, None, None
@@ -500,9 +509,20 @@ def run_pipeline(accounts, account_device, account_payment, account_address, acc
     if candidates.empty:
         return G, clusters_df, pd.DataFrame()
 
-    features = compute_cluster_features(candidates, accounts, orders,
-                                         account_device, account_payment, account_address,
-                                         account_ip=account_ip, G=G)
+    # Compute referral features if referrals.csv is available
+    ref_features = None
+    if referrals is not None and not referrals.empty:
+        try:
+            ref_features = compute_referral_features(clusters_df, referrals, orders)
+        except Exception:
+            ref_features = None  # referral features are supplementary; don't break the app
+
+    features = compute_cluster_features(
+        candidates, accounts, orders,
+        account_device, account_payment, account_address,
+        account_ip=account_ip, G=G,
+        referral_features=ref_features,
+    )
     return G, clusters_df, features
 
 
@@ -523,9 +543,10 @@ fp_multiplier = st.sidebar.slider(
 mode = st.radio("Data source", ["Bundled demo data", "Upload your own CSVs"], horizontal=True)
 
 ground_truth = None
+referrals = None
 
 if mode == "Bundled demo data":
-    accounts, account_device, account_payment, account_address, account_ip, orders, ground_truth = load_bundled_demo_data()
+    accounts, account_device, account_payment, account_address, account_ip, orders, ground_truth, referrals = load_bundled_demo_data()
     st.success(f"Loaded bundled dataset: {len(accounts)} accounts.")
 else:
     st.write("Upload all 6 required files (see DATA_DICTIONARY.md for exact schema):")
@@ -558,11 +579,13 @@ else:
     account_address = dfs["account_address.csv"]
     account_ip = dfs["account_ip.csv"]
     orders = dfs["orders.csv"]
+    referrals = pd.DataFrame(columns=["referrer_id", "referred_id", "referral_date", "bonus_amount"])
     st.success(f"Loaded {len(accounts)} accounts from your files.")
 
 with st.spinner("Building graph, running community detection, scoring clusters..."):
     G, clusters_df, features = run_pipeline(
-        accounts, account_device, account_payment, account_address, account_ip, orders
+        accounts, account_device, account_payment, account_address, account_ip, orders,
+        referrals=referrals,
     )
 
 if G is None or features is None or features.empty:
@@ -816,6 +839,63 @@ else:
             st.warning(f"Per-account scoring unavailable: {exc}")
 
         st.divider()
+
+        # --- Referral chain signals for this cluster ---
+        if referrals is not None and not referrals.empty:
+            # Find all referral edges where at least one endpoint is a cluster member
+            member_set = set(members)
+            ref_in = referrals[
+                referrals["referrer_id"].isin(member_set) | referrals["referred_id"].isin(member_set)
+            ].copy()
+            if not ref_in.empty:
+                ref_in["referral_date"] = pd.to_datetime(ref_in["referral_date"]).dt.date
+                # Flag edges fully within the cluster vs. crossing the boundary
+                ref_in["edge_type"] = ref_in.apply(
+                    lambda row: "within cluster"
+                    if row["referrer_id"] in member_set and row["referred_id"] in member_set
+                    else ("referrer in cluster" if row["referrer_id"] in member_set
+                          else "referred is member"),
+                    axis=1,
+                )
+                n_within = (ref_in.edge_type == "within cluster").sum()
+                st.markdown(
+                    f"**Referral chain signals** — {len(ref_in)} referral edges involve "
+                    f"this cluster's members ({n_within} within cluster, "
+                    f"{len(ref_in) - n_within} crossing cluster boundary)"
+                )
+                # Show referral feature values for this cluster if computed
+                cluster_ref_feat = features[features.cluster_id == selected]
+                ref_feat_present = all(c in cluster_ref_feat.columns for c in REFERRAL_FEATURE_COLS)
+                if ref_feat_present:
+                    rfcols = st.columns(4)
+                    rfcols[0].metric(
+                        "Cycle ratio",
+                        f"{cluster_ref_feat['referral_cycle_ratio'].values[0]:.3f}",
+                        help="Fraction of members in directed referral cycles. >0 is unusual in organic referral trees.",
+                    )
+                    rfcols[1].metric(
+                        "Resource overlap",
+                        f"{cluster_ref_feat['referral_resource_overlap_ratio'].values[0]:.3f}",
+                        help="Fraction of referral edges where both accounts share a resource. High = deliberate combination.",
+                    )
+                    rfcols[2].metric(
+                        "Median activation (days)",
+                        f"{cluster_ref_feat['median_referral_activation_days'].values[0]:.1f}d",
+                        help="Median days from referral to first order. Ring operators activate fast (<7d); organic spread 0-30d.",
+                    )
+                    rfcols[3].metric(
+                        "Within-cluster density",
+                        f"{cluster_ref_feat['within_cluster_referral_density'].values[0]:.3f}",
+                        help="Fraction of member pairs with a referral edge. High = coordinated referral activity.",
+                    )
+                st.dataframe(
+                    ref_in[["referrer_id", "referred_id", "referral_date", "bonus_amount", "edge_type"]]
+                    .sort_values("referral_date"),
+                    width="stretch", hide_index=True,
+                )
+            else:
+                st.info("No referral edges found for members of this cluster.")
+
         st.write(f"**{len(members)} member accounts (all, unsorted):**")
         st.code("\n".join(members))
 

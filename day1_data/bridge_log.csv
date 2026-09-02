@@ -1,8 +1,8 @@
 type,a,b,resource_type,bridged_account,ring,group
-ring_to_ring,RING005,RING014,ip,ACC4aa9d7ee0c,,
-ring_to_coincidental,,,payment,ACCa3f4f77766,RING013,COINC0033
-ring_to_ring,RING005,RING010,ip,ACCfd1f1db4d5,,
-ring_to_coincidental,,,address,ACC824b8b9217,RING004,COINC0000
-ring_to_coincidental,,,address,ACC56de1c9f77,RING009,COINC0031
-ring_to_ring,RING003,RING017,device,ACC0925a04aa4,,
-ring_to_ring,RING013,RING002,payment,ACCdf77d4c2cb,,
+ring_to_ring,RING013,RING009,device,ACCfd47b995e8,,
+ring_to_coincidental,,,device,ACC9b9d6da571,RING010,COINC0044
+ring_to_ring,RING010,RING018,address,ACCb35847be81,,
+ring_to_ring,RING013,RING006,ip,ACC0681299fdc,,
+ring_to_ring,RING012,RING015,payment,ACCad8b50cc80,,
+ring_to_ring,RING018,RING007,ip,ACC6f72e1ab6d,,
+ring_to_ring,RING009,RING016,ip,ACCe987a30906,,

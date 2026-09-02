@@ -35,7 +35,17 @@ DATA_DIR = "day1_data"
 
 def build_labels(features: pd.DataFrame, clusters: pd.DataFrame, ground_truth: pd.DataFrame) -> pd.Series:
     merged = clusters.merge(ground_truth, on="account_id", how="left")
-    majority = merged.groupby("cluster_id")["is_ring_member"].mean()  # fraction of members that are ring
+    # Mark a cluster as ring if the majority of its members are fraud ring
+    # members (either resource-sharing ring OR referral ring).
+    # Backward-compatible: if is_referral_ring_member column is absent (old
+    # ground_truth.csv), defaults to False for all accounts.
+    merged["is_ring_member"] = merged["is_ring_member"].fillna(False)
+    if "is_referral_ring_member" in merged.columns:
+        merged["is_referral_ring_member"] = merged["is_referral_ring_member"].fillna(False)
+        merged["is_any_ring_member"] = merged["is_ring_member"] | merged["is_referral_ring_member"]
+    else:
+        merged["is_any_ring_member"] = merged["is_ring_member"]
+    majority = merged.groupby("cluster_id")["is_any_ring_member"].mean()
     label = (majority > 0.5).astype(int)
     return features["cluster_id"].map(label)
 
@@ -165,10 +175,46 @@ def main():
         oof_xgb_pure[test_idx] = xgbc.predict_proba(X_test)[:, 1]
 
     print("\n" + "-" * 70)
-    print("ABLATION 2 — pure graph-topology features only (no timing, no order amount)")
+    print("ABLATION 2 -- pure graph-topology features only (no timing, no order amount)")
     print("-" * 70)
     evaluate(y, oof_logreg_pure, name="LogReg (pure graph)")
     evaluate(y, oof_xgb_pure, name="XGBoost (pure graph)")
+
+    # --- Third ablation: pure graph + referral features.
+    # This answers the key scientific question: do referral-graph features
+    # detect referral rings that the resource-sharing classifier would miss?
+    # Expected outcome: recall improves (referral-ring clusters now flagged)
+    # without precision loss (resource-sharing-ring clusters unaffected).
+    from referral_features import REFERRAL_FEATURE_COLS
+    referral_present = all(c in feature_names for c in REFERRAL_FEATURE_COLS)
+    if referral_present:
+        pure_plus_referral = pure_names + REFERRAL_FEATURE_COLS
+        keep_idx3 = [feature_names.index(n) for n in pure_plus_referral if n in feature_names]
+        X_pure_ref = X[:, keep_idx3]
+        oof_logreg_pure_ref = np.zeros(len(y), dtype=float)
+        oof_xgb_pure_ref = np.zeros(len(y), dtype=float)
+        for train_idx, test_idx in skf.split(X_pure_ref, y):
+            X_train, X_test = X_pure_ref[train_idx], X_pure_ref[test_idx]
+            y_train = y[train_idx]
+            logreg = make_pipeline(StandardScaler(),
+                                   LogisticRegression(max_iter=1000, random_state=42))
+            logreg.fit(X_train, y_train)
+            oof_logreg_pure_ref[test_idx] = logreg.predict_proba(X_test)[:, 1]
+            xgbc = XGBClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
+                                  subsample=0.8, colsample_bytree=0.8,
+                                  eval_metric="logloss", random_state=42)
+            xgbc.fit(X_train, y_train)
+            oof_xgb_pure_ref[test_idx] = xgbc.predict_proba(X_test)[:, 1]
+        print("\n" + "-" * 70)
+        print("ABLATION 3 -- pure graph + referral features")
+        print("-" * 70)
+        evaluate(y, oof_logreg_pure_ref, name="LogReg (graph+referral)")
+        evaluate(y, oof_xgb_pure_ref, name="XGBoost (graph+referral)")
+    else:
+        print("\n[ABLATION 3 SKIPPED] referral features not in cluster_features.csv. "
+              "Run referral_features.py then feature_engineering.py first.")
+        oof_logreg_pure_ref = np.full(len(y), np.nan)
+        oof_xgb_pure_ref = np.full(len(y), np.nan)
 
     print("\n" + "=" * 70)
     print("CALIBRATION CHECK — are the risk scores trustworthy as probabilities?")
@@ -204,6 +250,9 @@ def main():
     out["oof_prob_xgb_structural"] = oof_xgb_struct
     out["oof_prob_logreg_pure_graph"] = oof_logreg_pure
     out["oof_prob_xgb_pure_graph"] = oof_xgb_pure
+    if referral_present:
+        out["oof_prob_logreg_pure_graph_referral"] = oof_logreg_pure_ref
+        out["oof_prob_xgb_pure_graph_referral"] = oof_xgb_pure_ref
     out.to_csv("cluster_predictions.csv", index=False)
     print("\nSaved cluster_predictions.csv for Day 4 threshold/cost analysis.")
 

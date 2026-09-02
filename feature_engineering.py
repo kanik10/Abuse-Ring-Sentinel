@@ -24,7 +24,12 @@ def compute_cluster_features(clusters: pd.DataFrame,
                               account_payment: pd.DataFrame,
                               account_address: pd.DataFrame,
                               account_ip: pd.DataFrame = None,
-                              G: nx.Graph = None) -> pd.DataFrame:
+                              G: nx.Graph = None,
+                              referral_features: pd.DataFrame = None) -> pd.DataFrame:
+    """Compute cluster-level features.  If referral_features is supplied
+    (a DataFrame from referral_features.py with cluster_id + 4 referral
+    columns), it is left-joined onto the output and NaN filled with 0.
+    Clusters with no referral activity get 0 for all referral features."""
     if G is None and isinstance(account_ip, nx.Graph):
         G = account_ip
         account_ip = None
@@ -99,10 +104,23 @@ def compute_cluster_features(clusters: pd.DataFrame,
             "order_amount_cv": order_amount_cv,
         })
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+
+    # Optionally join referral features (4 new columns, 0 for clusters with
+    # no referral activity so the feature set stays consistent)
+    if referral_features is not None and not referral_features.empty:
+        from referral_features import REFERRAL_FEATURE_COLS
+        df = df.merge(
+            referral_features[["cluster_id"] + REFERRAL_FEATURE_COLS],
+            on="cluster_id", how="left",
+        )
+        df[REFERRAL_FEATURE_COLS] = df[REFERRAL_FEATURE_COLS].fillna(0.0)
+
+    return df
 
 
 if __name__ == "__main__":
+    from pathlib import Path
     clusters = pd.read_csv("clusters.csv")
     accounts = pd.read_csv(f"{DATA_DIR}/accounts.csv")
     orders = pd.read_csv(f"{DATA_DIR}/orders.csv")
@@ -113,11 +131,19 @@ if __name__ == "__main__":
 
     G = build_account_graph(account_device, account_payment, account_address, account_ip)
 
+    # Load referral features if available (run referral_features.py first)
+    ref_features = None
+    if Path("referral_cluster_features.csv").exists():
+        ref_features = pd.read_csv("referral_cluster_features.csv")
+        print(f"Loaded referral_cluster_features.csv ({len(ref_features)} rows)")
+
     features = compute_cluster_features(
         clusters, accounts, orders,
-        account_device, account_payment, account_address, account_ip=account_ip, G=G,
+        account_device, account_payment, account_address,
+        account_ip=account_ip, G=G,
+        referral_features=ref_features,
     )
     features.to_csv("cluster_features.csv", index=False)
-    print(f"Wrote cluster_features.csv — {len(features)} clusters, "
+    print(f"Wrote cluster_features.csv -- {len(features)} clusters, "
           f"{features.shape[1] - 1} features each.")
     print(features.describe().T[["mean", "std", "min", "max"]])
