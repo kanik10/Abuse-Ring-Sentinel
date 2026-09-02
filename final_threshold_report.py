@@ -29,33 +29,15 @@ from bootstrap_threshold_ci import (
     percentile_ci,
     N_BOOTSTRAP,
 )
+from threshold_config import CHOSEN_THRESHOLD  # single source of truth -- value is
+                                               # read from pooled_threshold_selection_summary.json
+                                               # (written by pooled_threshold_selection.py).
+                                               # Re-run that script to update the threshold
+                                               # everywhere without touching any code.
 
 DATA_DIR = "day1_data"
 CHOSEN_MODEL = "Logistic Regression (pure graph)"
 CHOSEN_COLUMN = "oof_prob_logreg_pure_graph"
-CHOSEN_THRESHOLD = 0.48111024428768  # exact value from threshold_sweep_results.csv,
-                                    # re-verified live after entity resolution was wired
-                                    # into graph_builder.py (the previous constant,
-                                    # 0.7732484382694863, was correct for the pre-fix
-                                    # graph but went stale once the graph changed --
-                                    # see conversation history / naive_baseline.py
-                                    # comparison for how this was caught).
-                                    # NOT the rounded 0.481 used for display, which can
-                                    # misclassify edge cases.
-                                    #
-                                    # NOTE: risk_scoring.py, app_interactive.py, and
-                                    # bootstrap_threshold_ci.py each still hardcode their
-                                    # own separate copy of this same value -- that
-                                    # duplication is exactly what let it go stale once
-                                    # already. Consolidating to a single import is a
-                                    # deferred TODO, not done yet. This file's own
-                                    # bootstrap call below passes CHOSEN_THRESHOLD in
-                                    # explicitly as a parameter rather than relying on
-                                    # bootstrap_threshold_ci.py's own constant, so this
-                                    # particular integration is already safe against
-                                    # that file's copy going stale on its own -- but the
-                                    # other two files are not, until the consolidation
-                                    # happens.
 
 
 def false_positive_breakdown(flagged_accounts: pd.DataFrame) -> tuple[int, int]:

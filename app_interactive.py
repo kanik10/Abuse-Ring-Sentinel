@@ -38,9 +38,12 @@ import community as community_louvain
 
 from graph_builder import build_account_graph
 from feature_engineering import compute_cluster_features
+from account_scoring import score_accounts_in_cluster
 
 PURE_GRAPH_FEATURES = ["cluster_size", "entity_reuse_ratio", "internal_density"]
-DEFAULT_THRESHOLD = 0.48111024428768
+from threshold_config import CHOSEN_THRESHOLD as DEFAULT_THRESHOLD  # reads pooled_threshold_selection_summary.json;
+                                                                     # run pooled_threshold_selection.py to update.
+
 FEATURE_LABELS = {
     "cluster_size": "Cluster size",
     "entity_reuse_ratio": "Entity reuse ratio",
@@ -770,12 +773,50 @@ else:
             accounts[["account_id", "creation_date"]], on="account_id", how="left"
         )
         member_table["order_value"] = member_table["account_id"].map(order_totals).fillna(0.0)
-        if ground_truth is not None:
-            member_table = member_table.merge(
-                ground_truth[["account_id", "is_ring_member"]], on="account_id", how="left"
+
+        # --- Per-account risk ranking (account_scoring module) ---
+        st.markdown("**Account risk ranking** — scored on account-local evidence only "
+                    "(resource sharing, graph position, creation timing, order pattern). "
+                    "Cluster-level features are intentionally excluded to avoid double-counting.")
+        try:
+            acct_scores = score_accounts_in_cluster(
+                selected, members, G,
+                account_device, account_payment, account_address, account_ip,
+                accounts, orders,
             )
-        st.dataframe(member_table, width="stretch", hide_index=True)
-        st.write(f"**{len(members)} member accounts:**")
+            display_acct = acct_scores[[
+                "account_id", "account_risk_score",
+                "n_shared_resources", "within_cluster_degree",
+                "within_cluster_edge_weight_sum",
+                "creation_date_centrality", "order_amount_centrality",
+            ]].copy()
+            display_acct.columns = [
+                "Account ID", "Risk score",
+                "Shared resources", "Cluster degree",
+                "Edge weight sum", "Creation centrality", "Order centrality",
+            ]
+            if ground_truth is not None:
+                gt_map = ground_truth.set_index("account_id")["is_ring_member"]
+                display_acct.insert(
+                    2, "Ring member ✓",
+                    display_acct["Account ID"].map(gt_map).fillna(False)
+                )
+            st.dataframe(
+                display_acct.style.background_gradient(
+                    subset=["Risk score"], cmap="YlOrRd", vmin=0.0, vmax=1.0
+                ),
+                width="stretch", hide_index=True,
+            )
+            st.caption(
+                "Risk score = mean of 5 min-max normalized features (all [0,1], higher = more suspicious). "
+                "Ties in the top feature produce equal scores — use 'Shared resources' and 'Cluster degree' "
+                "as tiebreakers."
+            )
+        except Exception as exc:
+            st.warning(f"Per-account scoring unavailable: {exc}")
+
+        st.divider()
+        st.write(f"**{len(members)} member accounts (all, unsorted):**")
         st.code("\n".join(members))
 
 st.divider()

@@ -44,14 +44,13 @@ import numpy as np
 import pandas as pd
 
 from threshold_sweep import build_cluster_cost_inputs, sweep_thresholds
+from threshold_config import CHOSEN_THRESHOLD  # single source of truth -- reads
+                                               # pooled_threshold_selection_summary.json.
 
 DATA_DIR = "day1_data"
 CHOSEN_COLUMN = "oof_prob_logreg_pure_graph"
-CHOSEN_THRESHOLD = 0.48111024428768  # FIXED -- must always match final_threshold_report.py's
-                                    # CHOSEN_THRESHOLD exactly. This constant went stale once
-                                    # already (was 0.7732484382694863, the pre-entity-resolution
-                                    # value) -- see conversation history for how that was caught.
 DEFAULT_FP_MULTIPLIER = 1.0  # matches the "1x avg order value" headline assumption in final_report.md
+
 N_BOOTSTRAP = 10_000
 SEED = 42
 

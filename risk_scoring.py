@@ -23,10 +23,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from graph_builder import build_account_graph
+from account_scoring import score_all_flagged_accounts
+from threshold_config import CHOSEN_THRESHOLD  # reads pooled_threshold_selection_summary.json;
+                                               # run pooled_threshold_selection.py to update.
+
 DATA_DIR = "day1_data"
 PURE_GRAPH_FEATURES = ["cluster_size", "entity_reuse_ratio", "internal_density"]
-CHOSEN_THRESHOLD = 0.48111024428768  # locked in Day 4 Phase 3 -- exact value, not rounded
-
 
 class RecommendedAction(Enum):
     """Deliberately the ONLY member this enum will ever have in this
@@ -43,6 +46,11 @@ class ClusterRiskOutput:
     member_account_ids: List[str]
     shared_resources: List[str]
     contributing_features: dict
+    # Per-account scores within this cluster, sorted by account_risk_score DESC.
+    # Each entry is a dict with keys: account_id, account_risk_score, and the 5
+    # raw account-local features. Populated by risk_scoring.main() after the
+    # cluster-level pass; empty list if account scoring is unavailable.
+    account_scores: List[dict] = field(default_factory=list)
     recommended_action: RecommendedAction = RecommendedAction.FLAG_FOR_REVIEW
 
     def to_json_dict(self) -> dict:
@@ -81,7 +89,13 @@ def find_shared_resources(cluster_id: int, clusters: pd.DataFrame,
 
 def score_all_clusters(features: pd.DataFrame, clusters: pd.DataFrame, model,
                         account_device, account_payment, account_address,
-                        account_ip) -> List[ClusterRiskOutput]:
+                        account_ip, G=None,
+                        accounts: pd.DataFrame = None,
+                        orders: pd.DataFrame = None) -> List[ClusterRiskOutput]:
+    """Cluster-level pass: score every cluster and keep those above threshold.
+    If G, accounts, and orders are supplied, also runs per-account scoring
+    (account_scoring.score_all_flagged_accounts) and attaches the results to
+    each ClusterRiskOutput.account_scores."""
     X = features[PURE_GRAPH_FEATURES].values
     risk_scores = model.predict_proba(X)[:, 1]
 
@@ -104,6 +118,23 @@ def score_all_clusters(features: pd.DataFrame, clusters: pd.DataFrame, model,
             shared_resources=shared,
             contributing_features={f: round(float(row[f]), 4) for f in PURE_GRAPH_FEATURES},
         ))
+
+    # Per-account scoring pass (runs only if graph + data are available)
+    if G is not None and accounts is not None and orders is not None and outputs:
+        flagged_ids = [o.cluster_id for o in outputs]
+        account_scored = score_all_flagged_accounts(
+            flagged_ids, clusters, G,
+            account_device, account_payment, account_address, account_ip,
+            accounts, orders,
+        )
+        # Index by cluster_id for fast lookup
+        acct_by_cluster = {
+            cid: grp.drop(columns=["cluster_id"]).to_dict(orient="records")
+            for cid, grp in account_scored.groupby("cluster_id")
+        }
+        for o in outputs:
+            o.account_scores = acct_by_cluster.get(o.cluster_id, [])
+
     return outputs
 
 
@@ -111,10 +142,14 @@ def main():
     features = pd.read_csv("cluster_features.csv")
     clusters = pd.read_csv("clusters.csv")
     predictions = pd.read_csv("cluster_predictions.csv")
+    accounts = pd.read_csv(f"{DATA_DIR}/accounts.csv")
+    orders = pd.read_csv(f"{DATA_DIR}/orders.csv")
     account_device = pd.read_csv(f"{DATA_DIR}/resolved_account_device.csv")
     account_payment = pd.read_csv(f"{DATA_DIR}/resolved_account_payment.csv")
     account_address = pd.read_csv(f"{DATA_DIR}/resolved_account_address.csv")
     account_ip = pd.read_csv(f"{DATA_DIR}/resolved_account_ip.csv")
+
+    G = build_account_graph(account_device, account_payment, account_address, account_ip)
 
     labels = predictions.set_index("cluster_id").loc[features.cluster_id, "y_true_is_ring"].reset_index(drop=True)
 
@@ -122,7 +157,8 @@ def main():
     joblib.dump(model, "final_model.joblib")
 
     outputs = score_all_clusters(
-        features, clusters, model, account_device, account_payment, account_address, account_ip
+        features, clusters, model, account_device, account_payment, account_address,
+        account_ip, G=G, accounts=accounts, orders=orders,
     )
 
     print(f"Flagged {len(outputs)} clusters for review (threshold={CHOSEN_THRESHOLD:.4f})\n")
