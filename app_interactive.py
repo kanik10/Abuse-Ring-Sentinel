@@ -1,32 +1,21 @@
 """
-app_interactive.py
+app_interactive.py — Abuse-Ring Sentinel Interactive Intelligence Dashboard
 
-Upload-your-own-data version of the Day 5 demo. Reuses build_account_graph
-(graph_builder.py) and compute_cluster_features (feature_engineering.py)
-directly -- this runs the EXACT SAME code as the batch pipeline, not a
-reimplementation of it, so results here are guaranteed consistent with
-Days 2-5's analysis.
+Ultra-modern, dark glassmorphism executive interface for inspecting abuse-ring
+clusters, network topology, local SHAP risk drivers, account rankings, and referral signals.
 
-Two modes:
-  - Bundled demo data: the same 6,388-account synthetic population used
-    throughout this project.
-  - Upload your own: 6 required CSVs matching the same schema (see
-    DATA_DICTIONARY.md), scored live against the pre-trained model.
-
-The risk threshold is adjustable in the sidebar -- ties directly back to
-Day 4's cost-based threshold analysis: moving it shows, live, the
-precision/recall/cost trade-off instead of just asserting one number.
-
-Still read-only. Still no code path that blocks, freezes, or cancels
-anything -- same structural guarantee as risk_scoring.py and app.py.
-
+Read-only, non-actioning defense interface — every output is a human review recommendation.
+# Sentinel Interactive Dashboard - Refreshed UI 2026
 Run with: streamlit run app_interactive.py
 """
 
+import altair as alt
 import html
 import itertools
+import json
 import math
 from collections import defaultdict
+from pathlib import Path
 
 import joblib
 import networkx as nx
@@ -40,31 +29,338 @@ from graph_builder import build_account_graph
 from feature_engineering import compute_cluster_features
 from account_scoring import score_accounts_in_cluster
 from referral_features import compute_referral_features, REFERRAL_FEATURE_COLS
+from threshold_config import CHOSEN_THRESHOLD as DEFAULT_THRESHOLD
+from pdf_generator import generate_cluster_pdf_report
 
 PURE_GRAPH_FEATURES = ["cluster_size", "entity_reuse_ratio", "internal_density"]
-from threshold_config import CHOSEN_THRESHOLD as DEFAULT_THRESHOLD  # reads pooled_threshold_selection_summary.json;
-                                                                     # run pooled_threshold_selection.py to update.
 
 FEATURE_LABELS = {
     "cluster_size": "Cluster size",
     "entity_reuse_ratio": "Entity reuse ratio",
     "internal_density": "Internal graph density",
 }
-REQUIRED_COLUMNS = {
-    "accounts.csv": {"account_id", "creation_date"},
-    "account_device.csv": {"account_id", "device_id"},
-    "account_payment.csv": {"account_id", "payment_id"},
-    "account_address.csv": {"account_id", "address_id"},
-    "account_ip.csv": {"account_id", "ip_id"},
-    "orders.csv": {"account_id", "amount", "timestamp"},
-}
 
-st.set_page_config(page_title="Abuse-Ring Sentinel — Interactive", layout="wide")
-st.title("Abuse-Ring Sentinel — Interactive Analysis")
-st.caption(
-    "Read-only analysis tool. No code path here blocks, freezes, or cancels "
-    "any account — every result is a recommendation for human review."
+# ---------------------------------------------------------------------------
+# Page Configuration & Dark Glassmorphism CSS Theme
+# ---------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Abuse-Ring Sentinel — Intelligence Dashboard",
+    page_icon="Sentinel",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
+
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+
+    /* Main background theme */
+    .stApp {
+        background: radial-gradient(circle at 50% -20%, #1e293b 0%, #0b0f19 50%, #05070d 100%) !important;
+        color: #f8fafc !important;
+    }
+
+    /* Titles Styling — JetBrains Mono */
+    h1, h2, h3, [data-testid="stHeader"] h1 {
+        font-family: 'JetBrains Mono', monospace !important;
+        font-weight: 500 !important;
+        letter-spacing: -0.02em !important;
+        color: #f8fafc !important;
+    }
+
+    /* Sidebar Styling */
+    [data-testid="stSidebar"] {
+        background: rgba(11, 15, 25, 0.85) !important;
+        backdrop-filter: blur(20px) !important;
+        border-right: 1px solid rgba(59, 130, 246, 0.15) !important;
+    }
+    
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+        font-family: 'JetBrains Mono', monospace !important;
+        color: #60a5fa !important;
+    }
+
+
+    /* Native Border Containers (Equal Height Glassmorphism) */
+    [data-testid="stBorderContainer"] {
+        background: rgba(15, 23, 42, 0.65) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        border: 1px solid rgba(59, 130, 246, 0.2) !important;
+        border-radius: 16px !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37), 0 0 15px rgba(59, 130, 246, 0.05) !important;
+        padding: 16px 20px !important;
+        margin-bottom: 16px !important;
+    }
+
+
+    /* Single-Line Compact Multiselect Input Box */
+    .stMultiSelect [data-baseweb="select"] > div,
+    div[data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+    [data-baseweb="select"] > div {
+        min-height: 34px !important;
+        height: 34px !important;
+        max-height: 34px !important;
+        padding: 2px 6px !important;
+        background-color: rgba(15, 23, 42, 0.85) !important;
+        border: 1px solid rgba(59, 130, 246, 0.3) !important;
+        border-radius: 8px !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+
+    .stMultiSelect [data-baseweb="select"] [data-baseweb="value-container"],
+    div[data-testid="stMultiSelect"] [data-baseweb="value-container"],
+    [data-baseweb="select"] [data-baseweb="value-container"] {
+        padding: 0 !important;
+        gap: 4px !important;
+        min-height: 28px !important;
+        height: 28px !important;
+        max-height: 28px !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        overflow: hidden !important;
+    }
+
+    /* Compact Tag Pills Overrides (Strict Background Override) */
+    .stMultiSelect [data-baseweb="tag"],
+    div[data-testid="stMultiSelect"] [data-baseweb="tag"],
+    [data-baseweb="select"] [data-baseweb="tag"],
+    [data-baseweb="tag"],
+    span[data-baseweb="tag"],
+    div[data-baseweb="tag"] {
+        background-color: rgba(30, 41, 59, 0.95) !important;
+        background: rgba(30, 41, 59, 0.95) !important;
+        border: 1px solid rgba(59, 130, 246, 0.4) !important;
+        border-radius: 6px !important;
+        margin: 0 3px 0 0 !important;
+        padding: 1px 6px !important;
+        height: 24px !important;
+        max-height: 24px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        white-space: nowrap !important;
+    }
+
+    .stMultiSelect [data-baseweb="tag"] *,
+    div[data-testid="stMultiSelect"] [data-baseweb="tag"] *,
+    [data-baseweb="select"] [data-baseweb="tag"] *,
+    [data-baseweb="tag"] *,
+    span[data-baseweb="tag"] * {
+        color: #60a5fa !important;
+        font-weight: 600 !important;
+        font-size: 11.5px !important;
+        background-color: transparent !important;
+        background: transparent !important;
+    }
+
+    .stMultiSelect [data-baseweb="tag"] [role="button"] svg,
+    div[data-testid="stMultiSelect"] [data-baseweb="tag"] [role="button"] svg,
+    [data-baseweb="select"] [data-baseweb="tag"] [role="button"] svg,
+    [data-baseweb="tag"] [role="button"] svg {
+        fill: #60a5fa !important;
+    }
+
+    /* Slider track & thumb override (Replaces default bright red) */
+    [data-baseweb="slider"] div[role="slider"],
+    div[data-testid="stSlider"] div[role="slider"] {
+        background-color: #3b82f6 !important;
+        border: 2px solid #ffffff !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stSlider"] label + div [data-testid="stMarkdownContainer"] p {
+        color: #60a5fa !important;
+        font-weight: 600 !important;
+    }
+
+    /* Native Metric Cards Override */
+    [data-testid="stMetric"] {
+        background: rgba(15, 23, 42, 0.45) !important;
+        backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(59, 130, 246, 0.15) !important;
+        border-radius: 12px !important;
+        padding: 10px 12px !important;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25) !important;
+        transition: transform 0.2s ease, border-color 0.2s ease !important;
+    }
+    
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-2px) !important;
+        border-color: rgba(59, 130, 246, 0.4) !important;
+    }
+
+    [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] * {
+        color: #94a3b8 !important;
+        font-size: 0.65rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.3px !important;
+        text-transform: uppercase !important;
+        white-space: nowrap !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+    }
+
+    [data-testid="stMetricValue"], [data-testid="stMetricValue"] * {
+        color: #60a5fa !important;
+        font-weight: 700 !important;
+        font-size: 1.25rem !important;
+        text-shadow: 0 0 12px rgba(59, 130, 246, 0.3) !important;
+        white-space: nowrap !important;
+    }
+
+
+
+    /* Title Un-bolding */
+    h1, [data-testid="stHeader"] h1 {
+        font-weight: 400 !important;
+        letter-spacing: -0.01em !important;
+        color: #f8fafc !important;
+    }
+
+    /* ----------------------------------------------------------------------- */
+    /* Tabs Styling — Single Electric-Blue Line with Upward Glow (No Orange, No Box) */
+    /* ----------------------------------------------------------------------- */
+    div[data-testid="stTabs"] {
+        --primary-color: #3b82f6 !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"], 
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+        gap: 20px !important;
+        padding: 0 0 2px 0 !important;
+    }
+
+    .stTabs button[data-baseweb="tab"], 
+    [data-testid="stTabs"] button[role="tab"],
+    .stTabs [data-baseweb="tab"] {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        border-top: none !important;
+        border-left: none !important;
+        border-right: none !important;
+        border-bottom: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        color: #94a3b8 !important;
+        font-size: 0.95rem !important;
+        font-weight: 500 !important;
+        padding: 10px 16px !important;
+        transition: color 0.2s ease !important;
+    }
+
+    .stTabs button[aria-selected="true"],
+    [data-testid="stTabs"] button[aria-selected="true"] {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        border-top: none !important;
+        border-left: none !important;
+        border-right: none !important;
+        border-bottom: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        color: #60a5fa !important;
+        font-weight: 600 !important;
+        text-shadow: 0 0 10px rgba(96, 165, 250, 0.6) !important;
+    }
+
+    /* Single Upward Glowing Electric-Blue Underline Bar */
+    .stTabs [data-baseweb="tab-highlight"],
+    [data-testid="stTabs"] [data-baseweb="tab-highlight"],
+    [data-testid="stTabHighlight"] {
+        background-color: #3b82f6 !important;
+        background: #3b82f6 !important;
+        height: 3px !important;
+        border-radius: 2px !important;
+        box-shadow: 0 -8px 20px 4px rgba(59, 130, 246, 0.85), 0 -2px 10px rgba(96, 165, 250, 0.9) !important;
+    }
+
+    .stTabs [data-baseweb="tab-border"],
+    [data-testid="stTabs"] [data-baseweb="tab-border"] {
+        background-color: transparent !important;
+        display: none !important;
+        height: 0px !important;
+    }
+
+
+
+
+
+    /* Dataframe & Tables */
+    [data-testid="stDataFrame"] {
+        border: 1px solid rgba(59, 130, 246, 0.2) !important;
+        border-radius: 12px !important;
+        overflow: hidden !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
+    }
+
+    /* Custom Badges & Labels */
+    .badge-blue {
+        background: rgba(59, 130, 246, 0.15);
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        color: #60a5fa;
+        font-size: 0.72rem;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        display: inline-block;
+        margin-bottom: 8px;
+    }
+
+    /* Sliders */
+    .stSlider [data-baseweb="slider"] {
+        color: #3b82f6 !important;
+    }
+
+    /* Buttons & Controls — Clean Modern Flat (Zero Glows / Shadows) */
+    .stButton>button, .stDownloadButton>button,
+    button[data-testid="stBaseButton-secondary"],
+    button[data-testid="stBaseButton-primary"] {
+        background: rgba(30, 41, 59, 0.8) !important;
+        color: #f8fafc !important;
+        border-radius: 8px !important;
+        border: 1px solid rgba(148, 163, 184, 0.25) !important;
+        font-weight: 500 !important;
+        font-family: Inter, sans-serif !important;
+        font-size: 13px !important;
+        box-shadow: none !important;
+        filter: none !important;
+        outline: none !important;
+        transition: background 0.15s ease, border-color 0.15s ease !important;
+    }
+
+    .stButton>button:hover, .stDownloadButton>button:hover,
+    button[data-testid="stBaseButton-secondary"]:hover,
+    button[data-testid="stBaseButton-primary"]:hover {
+        background: rgba(51, 65, 85, 0.9) !important;
+        border-color: rgba(148, 163, 184, 0.45) !important;
+        color: #ffffff !important;
+        box-shadow: none !important;
+        filter: none !important;
+        transform: none !important;
+        outline: none !important;
+    }
+    
+    hr {
+        border-color: rgba(59, 130, 246, 0.15) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 
 @st.cache_resource
@@ -99,7 +395,14 @@ def validate_upload(df: pd.DataFrame, filename: str) -> list:
 
 
 def format_rs(value: float) -> str:
+    if abs(value) >= 1e7:
+        return f"Rs.{value/1e7:,.2f}Cr"
+    elif abs(value) >= 1e5:
+        return f"Rs.{value/1e5:,.2f}L"
+    elif abs(value) >= 1e3:
+        return f"Rs.{value/1e3:,.1f}k"
     return f"Rs.{value:,.0f}"
+
 
 
 def sigmoid(x: float) -> float:
@@ -174,13 +477,13 @@ def filter_cluster_graph(G, members, pair_resources, selected_resource_types,
 
 
 def render_cluster_graph_html(subgraph, accounts, orders, pair_resources,
-                              selected_resource_types, node_label_mode,
-                              edge_label_mode):
+                               selected_resource_types, node_label_mode,
+                               edge_label_mode):
     if subgraph.number_of_nodes() == 0:
         return """
-        <div style="height: 520px; display: grid; place-items: center; color: #6b625a;
-                    border: 1px solid #e3ded5; border-radius: 8px; background: #fbfaf7;
-                    font-family: Inter, system-ui, sans-serif;">
+        <div style="height: 520px; display: grid; place-items: center; color: #94a3b8;
+                    border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px;
+                    background: rgba(15, 23, 42, 0.65); font-family: Inter, sans-serif;">
           No graph structure matches the current filters.
         </div>
         """
@@ -237,162 +540,909 @@ def render_cluster_graph_html(subgraph, accounts, orders, pair_resources,
         resource_types = sorted({resource.split(":", 1)[0] for resource in resources})
         return "+".join(resource_types)
 
-    edge_svg = []
-    for a, b, data in subgraph.edges(data=True):
-        x1, y1 = project(a)
-        x2, y2 = project(b)
-        weight = float(data.get("weight", 1.0))
-        stroke_width = 1.0 + 5.0 * (weight / max_weight)
-        resources = visible_resources_for_edge(a, b)
-        resource_text = ", ".join(resources[:8])
-        if len(resources) > 8:
-            resource_text += f", +{len(resources) - 8} more"
-        title = html.escape(
-            f"{a} <-> {b}\nweight={weight:.3f}\nshared: {resource_text or 'shared resource'}"
-        )
-        edge_svg.append(
-            f"<line class='edge' x1='{x1:.1f}' y1='{y1:.1f}' x2='{x2:.1f}' y2='{y2:.1f}' "
-            f"stroke-width='{stroke_width:.2f}'><title>{title}</title></line>"
-        )
-        label = html.escape(edge_label(weight, resources))
-        if label:
-            edge_svg.append(
-                f"<text class='edge-label' x='{(x1 + x2) / 2:.1f}' y='{(y1 + y2) / 2:.1f}'>"
-                f"{label}</text>"
-            )
+    degree_vals = list(weighted_degree.values())
+    med_deg = np.median(degree_vals) if degree_vals else 0.0
 
-    node_svg = []
+    nodes = []
     for node in subgraph.nodes():
-        x, y = project(node)
         degree = float(weighted_degree.get(node, 0.0))
-        radius = 8.0 + 12.0 * (degree / max_degree if max_degree else 0.0)
+        radius = float(9.0 + 13.0 * (degree / max_degree if max_degree else 0.0))
         order_value = float(order_totals.get(node, 0.0))
         creation = ""
         if node in account_lookup.index and "creation_date" in account_lookup.columns:
             creation = str(account_lookup.loc[node, "creation_date"])
-        fill = "#d94f45" if degree >= np.median(list(weighted_degree.values())) else "#2f7fb8"
-        title = html.escape(
+        fill = "#f43f5e" if degree >= med_deg and med_deg > 0 else "#3b82f6"
+        title = (
             f"{node}\nweighted degree={degree:.3f}\norder value=Rs.{order_value:,.2f}"
             + (f"\ncreated={creation}" if creation else "")
         )
-        label = html.escape(node_label(node, degree, order_value))
-        node_svg.append(
-            f"<circle class='node' cx='{x:.1f}' cy='{y:.1f}' r='{radius:.1f}' fill='{fill}'>"
-            f"<title>{title}</title></circle>"
-        )
-        if label:
-            node_svg.append(
-                f"<text class='node-label' x='{x:.1f}' y='{y + radius + 13:.1f}'>{label}</text>"
-            )
+        lbl = node_label(node, degree, order_value)
+        nodes.append({
+            "id": str(node),
+            "label": lbl,
+            "radius": radius,
+            "fill": fill,
+            "title": title,
+            "degree": degree,
+            "order_value": order_value,
+        })
 
-    return f"""
+    links = []
+    for u, v, data in subgraph.edges(data=True):
+        weight = float(data.get("weight", 1.0))
+        stroke_width = float(1.2 + 4.5 * (weight / max_weight))
+        resources = visible_resources_for_edge(u, v)
+        resource_text = ", ".join(resources[:8])
+        if len(resources) > 8:
+            resource_text += f", +{len(resources) - 8} more"
+        title = f"{u} <-> {v}\nweight={weight:.3f}\nshared: {resource_text or 'shared resource'}"
+        lbl = edge_label(weight, resources)
+        links.append({
+            "source": str(u),
+            "target": str(v),
+            "weight": weight,
+            "stroke_width": stroke_width,
+            "label": lbl,
+            "title": title,
+        })
+
+    template = """
     <div class="graph-shell">
-      <svg id="cluster-graph" viewBox="0 0 {width} {height}" role="img">
-        <rect x="0" y="0" width="{width}" height="{height}" rx="8" fill="#fbfaf7"/>
-        <g id="graph-viewport">
-          {''.join(edge_svg)}
-          {''.join(node_svg)}
-        </g>
-      </svg>
-      <div class="graph-hint">Wheel to zoom, drag to pan, hover nodes and edges for details.</div>
+      <div class="graph-toolbar">
+        <span style="color:#60a5fa; font-weight:600; font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:0.5px;">PHYSICS SIMULATION VIEWPORT</span>
+        <button id="reset-zoom-btn" class="hud-btn">Reset View</button>
+        <button id="reheat-sim-btn" class="hud-btn">Re-spread Layout</button>
+        <button id="fullscreen-btn" class="hud-btn" style="margin-left:auto;">&boxbox; Fullscreen</button>
+      </div>
+      <svg id="cluster-graph" viewBox="0 0 __WIDTH__ __HEIGHT__" role="img"></svg>
     </div>
     <style>
-      .graph-shell {{
+      .graph-shell {
         width: 100%;
-        border: 1px solid #e3ded5;
-        border-radius: 8px;
-        background: #fbfaf7;
-        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }}
-      #cluster-graph {{
+        border: 1px solid rgba(59, 130, 246, 0.25);
+        border-radius: 16px;
+        background: rgba(7, 9, 14, 0.95);
+        font-family: Inter, system-ui, sans-serif;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 25px rgba(59, 130, 246, 0.05);
+        overflow: hidden;
+      }
+      .graph-shell:fullscreen {
+        width: 100vw !important;
+        height: 100vh !important;
+        border-radius: 0 !important;
+        background: #07090e !important;
+        display: flex;
+        flex-direction: column;
+      }
+      .graph-shell:fullscreen #cluster-graph {
+        height: calc(100vh - 45px) !important;
+        flex: 1;
+      }
+      .graph-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 16px;
+        background: rgba(15, 23, 42, 0.85);
+        border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+      }
+      .hud-btn {
+        background: rgba(59, 130, 246, 0.15);
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        color: #60a5fa;
+        border-radius: 6px;
+        padding: 4px 12px;
+        font-size: 11px;
+        font-family: Inter, sans-serif;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .hud-btn:hover {
+        background: rgba(59, 130, 246, 0.35);
+        color: #ffffff;
+        box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
+      }
+      #cluster-graph {
         width: 100%;
-        height: 530px;
+        height: 500px;
         display: block;
         cursor: grab;
-      }}
-      #cluster-graph:active {{ cursor: grabbing; }}
-      .edge {{
-        stroke: #8b918f;
-        stroke-opacity: 0.46;
+      }
+      #cluster-graph:active { cursor: grabbing; }
+      .edge-line {
+        stroke: #334155;
+        stroke-opacity: 0.5;
         stroke-linecap: round;
-      }}
-      .edge:hover {{
-        stroke: #222;
-        stroke-opacity: 0.86;
-      }}
-      .node {{
-        stroke: #fff;
-        stroke-width: 2;
-      }}
-      .node:hover {{
-        stroke: #111;
-        stroke-width: 3;
-      }}
-      .node-label {{
-        fill: #282828;
-        font-size: 10px;
+        transition: stroke 0.2s, stroke-opacity 0.2s;
+      }
+      .edge-line.highlighted {
+        stroke: #60a5fa !important;
+        stroke-opacity: 1.0 !important;
+        filter: drop-shadow(0px 0px 6px rgba(96, 165, 250, 0.8));
+      }
+      .node-group {
+        cursor: grab;
+      }
+      .node-group:active {
+        cursor: grabbing;
+      }
+      .node-circle {
+        stroke: #0f172a;
+        stroke-width: 2.5px;
+        filter: drop-shadow(0px 0px 6px rgba(59, 130, 246, 0.5));
+        transition: stroke 0.2s;
+      }
+      .node-circle.selected-node {
+        stroke: #f59e0b !important;
+        stroke-width: 4.5px !important;
+        filter: drop-shadow(0px 0px 14px rgba(245, 158, 11, 0.95)) !important;
+      }
+      .node-group {
+        cursor: grab;
+        transition: opacity 0.25s ease;
+      }
+      .node-group:active {
+        cursor: grabbing;
+      }
+      .node-group:hover .node-circle {
+        stroke: #ffffff !important;
+        stroke-width: 3.5px !important;
+        filter: drop-shadow(0px 0px 12px rgba(255, 255, 255, 0.9));
+      }
+      .node-txt {
+        fill: #f8fafc;
+        font-size: 10.5px;
+        font-weight: 600;
         text-anchor: middle;
         pointer-events: none;
         paint-order: stroke;
-        stroke: #fbfaf7;
+        stroke: #07090e;
         stroke-linejoin: round;
-        stroke-width: 3px;
-      }}
-      .edge-label {{
-        fill: #2f3534;
+        stroke-width: 3.5px;
+      }
+      .edge-txt {
+        fill: #94a3b8;
         font-size: 10px;
         font-weight: 600;
         text-anchor: middle;
         pointer-events: none;
         paint-order: stroke;
-        stroke: #fbfaf7;
+        stroke: #07090e;
         stroke-linejoin: round;
-        stroke-width: 4px;
-      }}
-      .graph-hint {{
-        color: #68635f;
-        font-size: 12px;
-        padding: 0 14px 12px;
-      }}
+        stroke-width: 3.5px;
+        opacity: 0.35;
+        transition: opacity 0.2s, fill 0.2s;
+      }
+      .edge-txt.highlighted {
+        opacity: 1.0 !important;
+        fill: #60a5fa !important;
+      }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
     <script>
-      (() => {{
-        const root = document.currentScript.parentElement;
-        const svg = root.querySelector("#cluster-graph");
-        const viewport = root.querySelector("#graph-viewport");
-        let scale = 1;
-        let tx = 0;
-        let ty = 0;
-        let dragging = false;
-        let last = null;
-        function applyTransform() {{
-          viewport.setAttribute("transform", `translate(${{tx}} ${{ty}}) scale(${{scale}})`);
-        }}
-        svg.addEventListener("wheel", (event) => {{
-          event.preventDefault();
-          const next = Math.max(0.55, Math.min(3.25, scale * (event.deltaY < 0 ? 1.12 : 0.9)));
-          scale = next;
-          applyTransform();
-        }}, {{ passive: false }});
-        svg.addEventListener("pointerdown", (event) => {{
-          dragging = true;
-          last = [event.clientX, event.clientY];
-          svg.setPointerCapture(event.pointerId);
-        }});
-        svg.addEventListener("pointermove", (event) => {{
-          if (!dragging || !last) return;
-          tx += event.clientX - last[0];
-          ty += event.clientY - last[1];
-          last = [event.clientX, event.clientY];
-          applyTransform();
-        }});
-        svg.addEventListener("pointerup", () => {{
-          dragging = false;
-          last = null;
-        }});
-      }})();
+      (() => {
+        const nodes = __NODES_JSON__;
+        const links = __LINKS_JSON__;
+        const width = __WIDTH__;
+        const height = __HEIGHT__;
+
+        const svg = d3.select("#cluster-graph");
+        svg.selectAll("*").remove();
+
+        const defs = svg.append("defs");
+        const pat = defs.append("pattern")
+          .attr("id", "grid-pattern-d3")
+          .attr("width", 30)
+          .attr("height", 30)
+          .attr("patternUnits", "userSpaceOnUse");
+        pat.append("path")
+          .attr("d", "M 30 0 L 0 0 0 30")
+          .attr("fill", "none")
+          .attr("stroke", "rgba(59, 130, 246, 0.05)")
+          .attr("stroke-width", 1);
+
+        svg.append("rect")
+          .attr("width", width)
+          .attr("height", height)
+          .attr("rx", 14)
+          .attr("fill", "#07090e");
+
+        svg.append("rect")
+          .attr("width", width)
+          .attr("height", height)
+          .attr("rx", 14)
+          .attr("fill", "url(#grid-pattern-d3)");
+
+        const container = svg.append("g").attr("class", "graph-container");
+
+        const zoom = d3.zoom()
+          .scaleExtent([0.3, 4.0])
+          .on("zoom", (event) => {
+            container.attr("transform", event.transform);
+          });
+        svg.call(zoom);
+
+        // Highly damped physics simulation to prevent excessive movement/jittering
+        const simulation = d3.forceSimulation(nodes)
+          .velocityDecay(0.65)
+          .alphaDecay(0.06)
+          .force("link", d3.forceLink(links).id(d => d.id).distance(d => 120 + 35 / Math.sqrt(d.weight || 1)))
+          .force("charge", d3.forceManyBody().strength(-350))
+          .force("center", d3.forceCenter(width / 2, height / 2))
+          .force("collide", d3.forceCollide().radius(d => d.radius + 30));
+
+        const linkGroup = container.append("g").attr("class", "links-group");
+        const link = linkGroup.selectAll("line")
+          .data(links)
+          .enter().append("line")
+          .attr("class", "edge-line")
+          .attr("stroke-width", d => d.stroke_width || 2.0);
+
+        link.append("title").text(d => d.title);
+
+        const linkText = linkGroup.selectAll("text")
+          .data(links)
+          .enter().append("text")
+          .attr("class", "edge-txt")
+          .text(d => d.label);
+
+        const nodeGroup = container.append("g").attr("class", "nodes-group");
+        const node = nodeGroup.selectAll("g")
+          .data(nodes)
+          .enter().append("g")
+          .attr("class", "node-group")
+          .call(d3.drag()
+            .on("start", dragstarted)
+            .on("drag", dragged)
+            .on("end", dragended));
+
+        node.append("circle")
+          .attr("class", "node-circle")
+          .attr("r", d => d.radius)
+          .attr("fill", d => d.fill);
+
+        node.append("title").text(d => d.title);
+
+        node.append("text")
+          .attr("class", "node-txt")
+          .attr("dy", d => d.radius + 15)
+          .text(d => d.label);
+
+        let selectedNodeId = null;
+
+        function updateHighlights() {
+          if (selectedNodeId) {
+            const connectedNodeIds = new Set([selectedNodeId]);
+            links.forEach(l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              if (srcId === selectedNodeId) connectedNodeIds.add(tgtId);
+              if (tgtId === selectedNodeId) connectedNodeIds.add(srcId);
+            });
+
+            node.style("opacity", n => connectedNodeIds.has(n.id) ? 1.0 : 0.18);
+            node.selectAll(".node-circle").classed("selected-node", n => n.id === selectedNodeId);
+
+            link.style("opacity", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return (srcId === selectedNodeId || tgtId === selectedNodeId) ? 1.0 : 0.06;
+            }).classed("highlighted", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return (srcId === selectedNodeId || tgtId === selectedNodeId);
+            });
+
+            linkText.style("opacity", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return (srcId === selectedNodeId || tgtId === selectedNodeId) ? 1.0 : 0.04;
+            }).classed("highlighted", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return (srcId === selectedNodeId || tgtId === selectedNodeId);
+            });
+          } else {
+            node.style("opacity", 1.0);
+            node.selectAll(".node-circle").classed("selected-node", false);
+            link.style("opacity", 0.5).classed("highlighted", false);
+            linkText.style("opacity", 0.35).classed("highlighted", false);
+          }
+        }
+
+        node.on("click", (event, d) => {
+          event.stopPropagation();
+          selectedNodeId = (selectedNodeId === d.id) ? null : d.id;
+          updateHighlights();
+        });
+
+        svg.on("click", () => {
+          if (selectedNodeId) {
+            selectedNodeId = null;
+            updateHighlights();
+          }
+        });
+
+        node.on("mouseover", (event, d) => {
+          if (!selectedNodeId) {
+            link.classed("highlighted", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return srcId === d.id || tgtId === d.id;
+            });
+            linkText.classed("highlighted", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return srcId === d.id || tgtId === d.id;
+            });
+          }
+        }).on("mouseout", () => {
+          if (!selectedNodeId) {
+            link.classed("highlighted", false);
+            linkText.classed("highlighted", false);
+          }
+        });
+
+        simulation.on("tick", () => {
+          link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+          linkText
+            .attr("x", d => (d.source.x + d.target.x) / 2)
+            .attr("y", d => (d.source.y + d.target.y) / 2);
+
+          node.attr("transform", d => `translate(${d.x}, ${d.y})`);
+        });
+
+        function dragstarted(event, d) {
+          if (!event.active) simulation.alphaTarget(0.15).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+          d.fx = event.x;
+          d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+          if (!event.active) simulation.alphaTarget(0);
+        }
+
+        document.getElementById("reset-zoom-btn").addEventListener("click", () => {
+          svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+        });
+
+        document.getElementById("reheat-sim-btn").addEventListener("click", () => {
+          nodes.forEach(d => { d.fx = null; d.fy = null; });
+          simulation.alpha(1).restart();
+        });
+
+        const shell = document.querySelector(".graph-shell");
+        const fsBtn = document.getElementById("fullscreen-btn");
+        function updateFsBtnText() {
+          if (document.fullscreenElement || document.webkitFullscreenElement) {
+            fsBtn.innerHTML = "&boxbox; Exit Fullscreen";
+          } else {
+            fsBtn.innerHTML = "&boxbox; Fullscreen";
+          }
+        }
+        if (fsBtn && shell) {
+          fsBtn.addEventListener("click", () => {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+              if (shell.requestFullscreen) shell.requestFullscreen();
+              else if (shell.webkitRequestFullscreen) shell.webkitRequestFullscreen();
+            } else {
+              if (document.exitFullscreen) document.exitFullscreen();
+              else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            }
+          });
+          document.addEventListener("fullscreenchange", updateFsBtnText);
+          document.addEventListener("webkitfullscreenchange", updateFsBtnText);
+        }
+      })();
     </script>
     """
+    return (
+        template.replace("__WIDTH__", str(width))
+        .replace("__HEIGHT__", str(height))
+        .replace("__NODES_JSON__", json.dumps(nodes))
+        .replace("__LINKS_JSON__", json.dumps(links))
+    )
+
+
+
+def build_single_account_ego_graph(target_account_id, G, account_device, account_payment,
+                                   account_address, account_ip, radius=1, view_mode="Account Projection"):
+    """
+    Builds ego network around target_account_id.
+    In 'Account Projection' mode: Extracts k-hop NetworkX subgraph around target_account_id.
+    In 'Entity Bipartite Tree' mode: Constructs bipartite graph of target_account_id, its raw
+    resources (devices, payments, addresses, IPs), and other accounts sharing those resources.
+    """
+    if view_mode == "Entity Bipartite Tree":
+        B = nx.Graph()
+        B.add_node(target_account_id, node_type="target", label=str(target_account_id))
+        
+        # Get target resources
+        devs = account_device[account_device.account_id == target_account_id]["device_id"].tolist()
+        pmts = account_payment[account_payment.account_id == target_account_id]["payment_id"].tolist()
+        addrs = account_address[account_address.account_id == target_account_id]["address_id"].tolist()
+        ips = account_ip[account_ip.account_id == target_account_id]["ip_id"].tolist()
+        
+        # Add resource nodes and edges to target
+        for r_id in devs[:10]:
+            r_node = f"device:{r_id}"
+            B.add_node(r_node, node_type="device", label=f"Dev:{str(r_id)[-6:]}")
+            B.add_edge(target_account_id, r_node)
+            sharing_accts = account_device[account_device.device_id == r_id]["account_id"].tolist()
+            for neighbor_acct in sharing_accts[:10]:
+                if neighbor_acct != target_account_id:
+                    B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
+                    B.add_edge(r_node, neighbor_acct)
+                    
+        for r_id in pmts[:10]:
+            r_node = f"payment:{r_id}"
+            B.add_node(r_node, node_type="payment", label=f"Pay:{str(r_id)[-6:]}")
+            B.add_edge(target_account_id, r_node)
+            sharing_accts = account_payment[account_payment.payment_id == r_id]["account_id"].tolist()
+            for neighbor_acct in sharing_accts[:10]:
+                if neighbor_acct != target_account_id:
+                    B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
+                    B.add_edge(r_node, neighbor_acct)
+
+        for r_id in addrs[:10]:
+            r_node = f"address:{r_id}"
+            B.add_node(r_node, node_type="address", label=f"Addr:{str(r_id)[-6:]}")
+            B.add_edge(target_account_id, r_node)
+            sharing_accts = account_address[account_address.address_id == r_id]["account_id"].tolist()
+            for neighbor_acct in sharing_accts[:10]:
+                if neighbor_acct != target_account_id:
+                    B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
+                    B.add_edge(r_node, neighbor_acct)
+
+        for r_id in ips[:10]:
+            r_node = f"ip:{r_id}"
+            B.add_node(r_node, node_type="ip", label=f"IP:{str(r_id)[-6:]}")
+            B.add_edge(target_account_id, r_node)
+            sharing_accts = account_ip[account_ip.ip_id == r_id]["account_id"].tolist()
+            for neighbor_acct in sharing_accts[:10]:
+                if neighbor_acct != target_account_id:
+                    B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
+                    B.add_edge(r_node, neighbor_acct)
+
+        return B
+
+    # Account Projection mode
+    if target_account_id in G:
+        sub = nx.ego_graph(G, target_account_id, radius=radius)
+    else:
+        sub = nx.Graph()
+        sub.add_node(target_account_id)
+    return sub
+
+
+def render_single_account_graph_html(
+    subgraph,
+    target_account_id,
+    accounts,
+    orders,
+    view_mode="Account Projection",
+    width=1000,
+    height=520,
+):
+    if subgraph.number_of_nodes() == 0:
+        return "<div style='color:#94a3b8; padding:20px;'>No graph nodes available for this account.</div>"
+
+    nodes = []
+    for node in subgraph.nodes():
+        node_attr = subgraph.nodes[node]
+        ntype = node_attr.get("node_type", "account")
+        is_target = (node == target_account_id)
+
+        if is_target:
+            fill = "#f59e0b"
+            radius = 18.0
+            stroke = "#fbbf24"
+        elif ntype == "device":
+            fill = "#06b6d4"
+            radius = 12.0
+            stroke = "#22d3ee"
+        elif ntype == "payment":
+            fill = "#a855f7"
+            radius = 12.0
+            stroke = "#c084fc"
+        elif ntype == "address":
+            fill = "#f97316"
+            radius = 12.0
+            stroke = "#fb923c"
+        elif ntype == "ip":
+            fill = "#10b981"
+            radius = 12.0
+            stroke = "#34d399"
+        else:
+            fill = "#3b82f6"
+            radius = 11.0
+            stroke = "#60a5fa"
+
+        lbl = str(node_attr.get("label", str(node)[-6:]))
+        title = f"ID: {node}\nType: {ntype.upper()}"
+        nodes.append({
+            "id": str(node),
+            "label": lbl,
+            "radius": radius,
+            "fill": fill,
+            "stroke": stroke,
+            "title": title,
+            "is_target": is_target,
+            "ntype": ntype,
+        })
+
+    links = []
+    for a, b, data in subgraph.edges(data=True):
+        w = float(data.get("weight", 1.0))
+        sw = max(1.5, min(6.0, 1.2 * w))
+        title = f"{a} <-> {b}"
+        links.append({
+            "source": str(a),
+            "target": str(b),
+            "weight": w,
+            "stroke_width": sw,
+            "title": title,
+        })
+
+    template = """
+    <div class="graph-shell">
+      <div class="graph-toolbar">
+        <span style="color:#f59e0b; font-weight:600; font-family:'JetBrains Mono', monospace; font-size:11px; letter-spacing:0.5px;">EGO GRAPH FOCUS VIEWPORT</span>
+        <button id="reset-single-zoom" class="hud-btn">Reset View</button>
+        <button id="reheat-single-sim" class="hud-btn">Re-spread Layout</button>
+        <button id="fullscreen-single-btn" class="hud-btn" style="margin-left:auto;">&boxbox; Fullscreen</button>
+      </div>
+      <svg id="single-account-graph" viewBox="0 0 __WIDTH__ __HEIGHT__" role="img"></svg>
+    </div>
+    <style>
+      .graph-shell {
+        width: 100%;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        border-radius: 16px;
+        background: rgba(7, 9, 14, 0.95);
+        font-family: Inter, system-ui, sans-serif;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 25px rgba(245, 158, 11, 0.05);
+        overflow: hidden;
+      }
+      .graph-shell:fullscreen {
+        width: 100vw !important;
+        height: 100vh !important;
+        border-radius: 0 !important;
+        background: #07090e !important;
+        display: flex;
+        flex-direction: column;
+      }
+      .graph-shell:fullscreen #single-account-graph {
+        height: calc(100vh - 45px) !important;
+        flex: 1;
+      }
+      .graph-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 16px;
+        background: rgba(15, 23, 42, 0.85);
+        border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+      }
+      .hud-btn {
+        background: rgba(245, 158, 11, 0.15);
+        border: 1px solid rgba(245, 158, 11, 0.35);
+        color: #fbbf24;
+        border-radius: 6px;
+        padding: 4px 12px;
+        font-size: 11px;
+        font-family: Inter, sans-serif;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .hud-btn:hover {
+        background: rgba(245, 158, 11, 0.35);
+        color: #ffffff;
+        box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+      }
+      #single-account-graph {
+        width: 100%;
+        height: 480px;
+        display: block;
+        cursor: grab;
+      }
+      #single-account-graph:active { cursor: grabbing; }
+      .edge-line {
+        stroke: #475569;
+        stroke-opacity: 0.6;
+        stroke-linecap: round;
+        transition: stroke 0.2s, stroke-opacity 0.2s;
+      }
+      .edge-line.highlighted {
+        stroke: #fbbf24 !important;
+        stroke-opacity: 1.0 !important;
+        filter: drop-shadow(0px 0px 6px rgba(251, 191, 36, 0.8));
+      }
+      .node-group {
+        cursor: grab;
+      }
+      .node-group:active {
+        cursor: grabbing;
+      }
+      .node-shape {
+        stroke-width: 2.5px;
+        transition: stroke 0.2s;
+      }
+      .node-shape.selected-node {
+        stroke: #f59e0b !important;
+        stroke-width: 4.5px !important;
+        filter: drop-shadow(0px 0px 14px rgba(245, 158, 11, 0.95)) !important;
+      }
+      .node-group {
+        cursor: grab;
+        transition: opacity 0.25s ease;
+      }
+      .node-group:active {
+        cursor: grabbing;
+      }
+      .node-group:hover .node-shape {
+        stroke: #ffffff !important;
+        stroke-width: 4.0px !important;
+        filter: drop-shadow(0px 0px 12px rgba(255, 255, 255, 0.9)) !important;
+      }
+      .node-txt {
+        fill: #f8fafc;
+        font-size: 10.5px;
+        font-weight: 600;
+        text-anchor: middle;
+        pointer-events: none;
+        paint-order: stroke;
+        stroke: #07090e;
+        stroke-linejoin: round;
+        stroke-width: 3.5px;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <script>
+      (() => {
+        const nodes = __NODES_JSON__;
+        const links = __LINKS_JSON__;
+        const width = __WIDTH__;
+        const height = __HEIGHT__;
+        const targetId = "__TARGET__";
+
+        const svg = d3.select("#single-account-graph");
+        svg.selectAll("*").remove();
+
+        const defs = svg.append("defs");
+        const pat = defs.append("pattern")
+          .attr("id", "grid-pattern-single")
+          .attr("width", 30)
+          .attr("height", 30)
+          .attr("patternUnits", "userSpaceOnUse");
+        pat.append("path")
+          .attr("d", "M 30 0 L 0 0 0 30")
+          .attr("fill", "none")
+          .attr("stroke", "rgba(245, 158, 11, 0.06)")
+          .attr("stroke-width", 1);
+
+        svg.append("rect")
+          .attr("width", width)
+          .attr("height", height)
+          .attr("rx", 14)
+          .attr("fill", "#07090e");
+
+        svg.append("rect")
+          .attr("width", width)
+          .attr("height", height)
+          .attr("rx", 14)
+          .attr("fill", "url(#grid-pattern-single)");
+
+        const container = svg.append("g").attr("class", "graph-container");
+
+        const zoom = d3.zoom()
+          .scaleExtent([0.3, 4.0])
+          .on("zoom", (event) => {
+            container.attr("transform", event.transform);
+          });
+        svg.call(zoom);
+
+        const simulation = d3.forceSimulation(nodes)
+          .velocityDecay(0.65)
+          .alphaDecay(0.06)
+          .force("link", d3.forceLink(links).id(d => d.id).distance(120))
+          .force("charge", d3.forceManyBody().strength(-380))
+          .force("center", d3.forceCenter(width / 2, height / 2))
+          .force("collide", d3.forceCollide().radius(d => d.radius + 30));
+
+        const targetNode = nodes.find(d => d.id === targetId);
+        if (targetNode) {
+          targetNode.fx = width / 2;
+          targetNode.fy = height / 2;
+        }
+
+        const linkGroup = container.append("g").attr("class", "links-group");
+        const link = linkGroup.selectAll("line")
+          .data(links)
+          .enter().append("line")
+          .attr("class", "edge-line")
+          .attr("stroke-width", d => d.stroke_width || 2.0);
+
+        link.append("title").text(d => d.title);
+
+        const nodeGroup = container.append("g").attr("class", "nodes-group");
+        const node = nodeGroup.selectAll("g")
+          .data(nodes)
+          .enter().append("g")
+          .attr("class", "node-group")
+          .call(d3.drag()
+            .on("start", dragstarted)
+            .on("drag", dragged)
+            .on("end", dragended));
+
+        node.each(function(d) {
+          const el = d3.select(this);
+          if (d.ntype === 'device' || d.ntype === 'payment') {
+            el.append("rect")
+              .attr("class", "node-shape")
+              .attr("x", -d.radius)
+              .attr("y", -d.radius)
+              .attr("width", d.radius * 2)
+              .attr("height", d.radius * 2)
+              .attr("rx", 4)
+              .attr("fill", d.fill)
+              .attr("stroke", d.stroke);
+          } else {
+            el.append("circle")
+              .attr("class", "node-shape")
+              .attr("r", d.radius)
+              .attr("fill", d.fill)
+              .attr("stroke", d.stroke);
+          }
+        });
+
+        node.append("title").text(d => d.title);
+
+        node.append("text")
+          .attr("class", "node-txt")
+          .attr("dy", d => d.radius + 16)
+          .text(d => d.label);
+
+        let selectedNodeId = null;
+
+        function updateHighlights() {
+          if (selectedNodeId) {
+            const connectedNodeIds = new Set([selectedNodeId]);
+            links.forEach(l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              if (srcId === selectedNodeId) connectedNodeIds.add(tgtId);
+              if (tgtId === selectedNodeId) connectedNodeIds.add(srcId);
+            });
+
+            node.style("opacity", n => connectedNodeIds.has(n.id) ? 1.0 : 0.18);
+            node.selectAll(".node-shape").classed("selected-node", n => n.id === selectedNodeId);
+
+            link.style("opacity", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return (srcId === selectedNodeId || tgtId === selectedNodeId) ? 1.0 : 0.06;
+            }).classed("highlighted", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return (srcId === selectedNodeId || tgtId === selectedNodeId);
+            });
+          } else {
+            node.style("opacity", 1.0);
+            node.selectAll(".node-shape").classed("selected-node", false);
+            link.style("opacity", 0.6).classed("highlighted", false);
+          }
+        }
+
+        node.on("click", (event, d) => {
+          event.stopPropagation();
+          selectedNodeId = (selectedNodeId === d.id) ? null : d.id;
+          updateHighlights();
+        });
+
+        svg.on("click", () => {
+          if (selectedNodeId) {
+            selectedNodeId = null;
+            updateHighlights();
+          }
+        });
+
+        node.on("mouseover", (event, d) => {
+          if (!selectedNodeId) {
+            link.classed("highlighted", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return srcId === d.id || tgtId === d.id;
+            });
+          }
+        }).on("mouseout", () => {
+          if (!selectedNodeId) {
+            link.classed("highlighted", false);
+          }
+        });
+
+        simulation.on("tick", () => {
+          link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+          node.attr("transform", d => `translate(${d.x}, ${d.y})`);
+        });
+
+        function dragstarted(event, d) {
+          if (!event.active) simulation.alphaTarget(0.15).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+          d.fx = event.x;
+          d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+          if (!event.active) simulation.alphaTarget(0);
+        }
+
+        document.getElementById("reset-single-zoom").addEventListener("click", () => {
+          svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+        });
+
+        document.getElementById("reheat-single-sim").addEventListener("click", () => {
+          nodes.forEach(d => {
+            if (d.id !== targetId) { d.fx = null; d.fy = null; }
+          });
+          simulation.alpha(1).restart();
+        });
+
+        const shell = document.querySelector(".graph-shell");
+        const fsBtn = document.getElementById("fullscreen-single-btn");
+        function updateFsBtnText() {
+          if (document.fullscreenElement || document.webkitFullscreenElement) {
+            fsBtn.innerHTML = "&boxbox; Exit Fullscreen";
+          } else {
+            fsBtn.innerHTML = "&boxbox; Fullscreen";
+          }
+        }
+        if (fsBtn && shell) {
+          fsBtn.addEventListener("click", () => {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+              if (shell.requestFullscreen) shell.requestFullscreen();
+              else if (shell.webkitRequestFullscreen) shell.webkitRequestFullscreen();
+            } else {
+              if (document.exitFullscreen) document.exitFullscreen();
+              else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+            }
+          });
+          document.addEventListener("fullscreenchange", updateFsBtnText);
+          document.addEventListener("webkitfullscreenchange", updateFsBtnText);
+        }
+      })();
+    </script>
+    """
+    return (
+        template.replace("__WIDTH__", str(width))
+        .replace("__HEIGHT__", str(height))
+        .replace("__NODES_JSON__", json.dumps(nodes))
+        .replace("__LINKS_JSON__", json.dumps(links))
+        .replace("__TARGET__", str(target_account_id))
+    )
+
+
 
 
 def compute_business_impact(clusters_df, features, flagged_cluster_ids, orders,
@@ -527,139 +1577,244 @@ def run_pipeline(accounts, account_device, account_payment, account_address,
 
 
 model = load_model()
+accounts, account_device, account_payment, account_address, account_ip, orders, ground_truth, referrals = load_bundled_demo_data()
 
-threshold = st.sidebar.slider(
-    "Risk score threshold", 0.0, 1.0, DEFAULT_THRESHOLD, 0.01,
-    help="Default is the cost-optimal threshold from Day 4's false-positive-cost "
-         "analysis. Lowering it flags more clusters (higher recall, more false "
-         "positives, per Day 4's sweep)."
-)
-fp_multiplier = st.sidebar.slider(
-    "False-positive cost multiplier", 0.1, 10.0, 1.0, 0.1,
-    help="Business-impact assumption: one wrongly flagged legitimate account "
-         "costs this many times the dataset's average order value."
-)
+# ---------------------------------------------------------------------------
+# Sidebar Controls & System Status
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown('<span class="badge-blue">SYSTEM CONTROLS</span>', unsafe_allow_html=True)
+    st.markdown("### Model Parameters")
+    
+    threshold = st.slider(
+        "Risk Score Threshold", 0.0, 1.0, DEFAULT_THRESHOLD, 0.01,
+        help="Default is the cost-optimal threshold from bootstrap analysis. Lowering flags more clusters (higher recall, higher FP cost)."
+    )
+    
+    fp_multiplier = st.slider(
+        "FP Cost Multiplier", 0.1, 10.0, 1.0, 0.1,
+        help="Business cost multiplier: one falsely flagged account costs N times average order value."
+    )
+    
+    st.divider()
+    st.markdown('<span class="badge-blue">POPULATION STATISTICS</span>', unsafe_allow_html=True)
+    st.markdown(f"""
+    - **Total Accounts:** `{len(accounts):,}`
+    - **Observed Orders:** `{len(orders):,}`
+    - **Referral Edges:** `{len(referrals):,}`
+    - **Engine Mode:** `Read-Only Recommendation`
+    """)
+    st.caption("🔒 Non-actioning defense guarantee: No automatic block/freeze paths.")
 
-mode = st.radio("Data source", ["Bundled demo data", "Upload your own CSVs"], horizontal=True)
+# ---------------------------------------------------------------------------
+# Header Section & Main Execution
+# ---------------------------------------------------------------------------
+st.markdown('<span class="badge-blue">SENTINEL INTELLIGENCE SYSTEM</span>', unsafe_allow_html=True)
+st.title("Abuse-Ring Sentinel")
+st.caption("Graph-Based Fraud Ring Detection & Risk Intelligence Platform")
 
-ground_truth = None
-referrals = None
-
-if mode == "Bundled demo data":
-    accounts, account_device, account_payment, account_address, account_ip, orders, ground_truth, referrals = load_bundled_demo_data()
-    st.success(f"Loaded bundled dataset: {len(accounts)} accounts.")
-else:
-    st.write("Upload all 6 required files (see DATA_DICTIONARY.md for exact schema):")
-    cols = st.columns(6)
-    uploads = {}
-    for col, fname in zip(cols, REQUIRED_COLUMNS.keys()):
-        uploads[fname] = col.file_uploader(fname, type="csv", key=fname)
-
-    if not all(uploads.values()):
-        st.info("Waiting for all 6 files...")
-        st.stop()
-
-    dfs = {}
-    errors = []
-    for fname, upload in uploads.items():
-        df = pd.read_csv(upload)
-        missing = validate_upload(df, fname)
-        if missing:
-            errors.append(f"{fname} is missing required column(s): {missing}")
-        dfs[fname] = df
-
-    if errors:
-        for e in errors:
-            st.error(e)
-        st.stop()
-
-    accounts = dfs["accounts.csv"]
-    account_device = dfs["account_device.csv"]
-    account_payment = dfs["account_payment.csv"]
-    account_address = dfs["account_address.csv"]
-    account_ip = dfs["account_ip.csv"]
-    orders = dfs["orders.csv"]
-    referrals = pd.DataFrame(columns=["referrer_id", "referred_id", "referral_date", "bonus_amount"])
-    st.success(f"Loaded {len(accounts)} accounts from your files.")
-
-with st.spinner("Building graph, running community detection, scoring clusters..."):
+with st.spinner("Processing entity resolution, graph projection, and community detection..."):
     G, clusters_df, features = run_pipeline(
         accounts, account_device, account_payment, account_address, account_ip, orders,
         referrals=referrals,
     )
 
 if G is None or features is None or features.empty:
-    st.warning("No accounts share any resource with another account — nothing to cluster or score.")
+    st.warning("No accounts share resources with another account — zero clusters generated.")
     st.stop()
 
 X = features[PURE_GRAPH_FEATURES].values
 features = features.copy()
 features["risk_score"] = model.predict_proba(X)[:, 1]
 flagged = features[features.risk_score >= threshold].sort_values("risk_score", ascending=False)
-
-col1, col2, col3 = st.columns(3)
-col1.metric("Accounts with shared resources", G.number_of_nodes())
-col2.metric("Clusters found", features.cluster_id.nunique())
-col3.metric("Flagged at this threshold", len(flagged))
-
 flagged_ids = set(flagged.cluster_id)
+
 impact = compute_business_impact(
     clusters_df, features, flagged_ids, orders, ground_truth, fp_multiplier
 )
-st.subheader("Live business impact")
-impact_cols = st.columns(5)
-impact_cols[0].metric("Rs protected", format_rs(impact["protected"]))
-impact_cols[1].metric("Rs FP cost", format_rs(impact["fp_cost"]))
-impact_cols[2].metric("Net impact", format_rs(impact["net"]))
-impact_cols[3].metric("Rs still missed", format_rs(impact["missed"]))
-impact_cols[4].metric("FP accounts", f"{impact['fp_accounts']:,.1f}" if impact["mode"] == "estimated" else f"{impact['fp_accounts']:,}")
-if impact["mode"] == "actual":
-    st.caption(
-        "Bundled demo mode: rupee impact is computed from ground truth and account-level order value. "
-        "Move the threshold or FP-cost slider to update it live."
-    )
-else:
-    st.caption(
-        "Uploaded-data mode: rupee impact is risk-weighted because no ground-truth labels were uploaded. "
-        "It is an estimate, not an evaluation result."
-    )
 
-if ground_truth is not None:
-    st.subheader("Evaluation against ground truth (only available for the bundled demo data)")
-    merged = clusters_df.merge(ground_truth, on="account_id", how="left")
-    ring_clusters = set(merged.loc[merged.is_ring_member == True, "cluster_id"])
-    tp = len(ring_clusters & flagged_ids)
-    fp = len(flagged_ids - ring_clusters)
-    fn = len(ring_clusters - flagged_ids)
-    precision = tp / (tp + fp) if (tp + fp) else 0.0
-    recall = tp / (tp + fn) if (tp + fn) else 0.0
-    ecol1, ecol2 = st.columns(2)
-    ecol1.metric("Precision", f"{precision:.3f}")
-    ecol2.metric("Recall", f"{recall:.3f}")
-    st.caption("Move the threshold slider above and watch these numbers update live — "
-               "this is the same trade-off Day 4's cost sweep explored offline.")
+# ---------------------------------------------------------------------------
+# Executive KPI Dashboard Cards
+# ---------------------------------------------------------------------------
+kpi_cols = st.columns(5)
+kpi_cols[0].metric("Monitored Accounts", f"{G.number_of_nodes():,}")
+kpi_cols[1].metric("Clusters Identified", f"{features.cluster_id.nunique():,}")
+kpi_cols[2].metric("Flagged High Risk", f"{len(flagged):,}")
+kpi_cols[3].metric("Protected Value", format_rs(impact["protected"]))
+kpi_cols[4].metric("Net Financial Impact", format_rs(impact["net"]))
 
-st.subheader("Flagged clusters")
-if flagged.empty:
-    st.info("No clusters flagged at this threshold.")
-else:
-    display_cols = ["cluster_id", "risk_score", "cluster_size", "entity_reuse_ratio", "internal_density"]
-    st.dataframe(flagged[display_cols].reset_index(drop=True), width="stretch", hide_index=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
-    csv_bytes = flagged[display_cols].to_csv(index=False).encode()
-    st.download_button("Download flagged clusters as CSV", csv_bytes, "flagged_clusters.csv", "text/csv")
+# ---------------------------------------------------------------------------
+# Performance & Financial Metric Cards
+# ---------------------------------------------------------------------------
+col_left, col_right = st.columns(2)
 
-    selected = st.selectbox("Inspect a cluster", options=flagged.cluster_id.tolist())
-    selected_row = features.loc[features.cluster_id == selected].iloc[0]
-    members = clusters_df.loc[clusters_df.cluster_id == selected, "account_id"].tolist()
-    pair_resources, resource_summary = cluster_shared_resources(
-        members, account_device, account_payment, account_address, account_ip
-    )
+with col_left:
+    st.markdown("### Performance Metrics")
+    with st.container(border=True):
+        if ground_truth is not None:
+            merged = clusters_df.merge(ground_truth, on="account_id", how="left")
+            ring_clusters = set(merged.loc[merged.is_ring_member == True, "cluster_id"])
+            tp = len(ring_clusters & flagged_ids)
+            fp = len(flagged_ids - ring_clusters)
+            fn = len(ring_clusters - flagged_ids)
+            precision = tp / (tp + fp) if (tp + fp) else 0.0
+            recall = tp / (tp + fn) if (tp + fn) else 0.0
 
-    st.subheader(f"Cluster {selected} inspection")
-    graph_tab, impact_tab, shap_tab, members_tab = st.tabs(
-        ["Network graph", "Business impact", "SHAP explanation", "Members"]
-    )
+            ev1, ev2, ev3, ev4 = st.columns(4)
+            ev1.metric("Precision", f"{precision:.3f}")
+            ev2.metric("Recall", f"{recall:.3f}")
+            ev3.metric("False Pos (FP)", f"{fp}")
+            ev4.metric("False Neg (FN)", f"{fn}")
+            
+        st.caption("Live threshold trade-off: Adjusting the sidebar threshold updates precision/recall and protected revenue in real-time.")
+
+with col_right:
+    st.markdown("### Business Risk Breakdown")
+    with st.container(border=True):
+        imp1, imp2, imp3 = st.columns(3)
+        imp1.metric("Protected", format_rs(impact["protected"]))
+        imp2.metric("FP Cost", format_rs(impact["fp_cost"]))
+        imp3.metric("Missed", format_rs(impact["missed"]))
+        st.caption(f"Business impact: False positive expense calculated using {impact['fp_accounts']} false positive account review overheads.")
+
+
+
+
+with st.container(border=True):
+    tcol1, tcol2 = st.columns([3.5, 1.2], vertical_alignment="center")
+    with tcol1:
+        st.markdown("### Flagged Abuse Clusters")
+        st.caption(f"Showing **{len(flagged):,}** clusters with risk scores exceeding the active threshold ({threshold:.3f}).")
+    with tcol2:
+        if not flagged.empty:
+            csv_cols = ["cluster_id", "risk_score", "cluster_size", "entity_reuse_ratio", "internal_density"]
+            csv_bytes = flagged[csv_cols].to_csv(index=False).encode()
+            st.download_button(
+                "Export CSV Report",
+                csv_bytes,
+                "flagged_clusters.csv",
+                "text/csv",
+                use_container_width=True
+            )
+
+    if flagged.empty:
+        st.info("No clusters flagged at this threshold.")
+    else:
+        # Prepare enriched table data
+        cluster_spend = orders.merge(clusters_df, on="account_id").groupby("cluster_id")["amount"].sum()
+        
+        flagged_display = flagged.copy()
+        flagged_display["Total Spend (Rs)"] = flagged_display["cluster_id"].map(cluster_spend).fillna(0.0)
+        flagged_display["Cluster ID Str"] = flagged_display["cluster_id"].apply(lambda c: f"Cluster #{c}")
+        
+        flagged_display = flagged_display.rename(columns={
+            "risk_score": "Risk Score",
+            "cluster_size": "Cluster Size",
+            "entity_reuse_ratio": "Entity Reuse Ratio",
+            "internal_density": "Graph Density",
+        })
+
+        st.dataframe(
+            flagged_display[[
+                "Cluster ID Str", "Risk Score", "Cluster Size", "Total Spend (Rs)",
+                "Entity Reuse Ratio", "Graph Density"
+            ]].reset_index(drop=True),
+            column_config={
+                "Cluster ID Str": st.column_config.TextColumn(
+                    "Cluster ID",
+                    help="Louvain community cluster identifier",
+                ),
+                "Risk Score": st.column_config.ProgressColumn(
+                    "Risk Score",
+                    min_value=0.0,
+                    max_value=1.0,
+                    format="%.3f",
+                    help="Ensemble model predicted probability of abuse ring behavior",
+                ),
+                "Cluster Size": st.column_config.NumberColumn(
+                    "Cluster Size",
+                    format="%d accounts",
+                    help="Total number of linked accounts in this cluster",
+                ),
+                "Total Spend (Rs)": st.column_config.NumberColumn(
+                    "Total Spend",
+                    format="Rs. %,.0f",
+                    help="Aggregate order financial value across all member accounts",
+                ),
+                "Entity Reuse Ratio": st.column_config.NumberColumn(
+                    "Entity Reuse Ratio",
+                    format="%.2f",
+                    help="Ratio of shared entities (devices, IPs, payments) per account",
+                ),
+                "Graph Density": st.column_config.NumberColumn(
+                    "Graph Density",
+                    format="%.3f",
+                    help="Internal connectivity density of the cluster graph",
+                ),
+            },
+            width="stretch",
+            hide_index=True,
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        selected = st.selectbox(
+            "Select Cluster for Deep Forensic Inspection",
+            options=flagged.cluster_id.tolist(),
+            format_func=lambda c: f"Cluster #{c} (Risk: {features.loc[features.cluster_id == c, 'risk_score'].values[0]:.3f} | Size: {features.loc[features.cluster_id == c, 'cluster_size'].values[0]} accounts)"
+        )
+        selected_row = features.loc[features.cluster_id == selected].iloc[0]
+        members = clusters_df.loc[clusters_df.cluster_id == selected, "account_id"].tolist()
+        pair_resources, resource_summary = cluster_shared_resources(
+            members, account_device, account_payment, account_address, account_ip
+        )
+
+        selected_impact = compute_business_impact(
+            clusters_df,
+            features.loc[features.cluster_id == selected],
+            {selected},
+            orders,
+            ground_truth,
+            fp_multiplier,
+        )
+
+        try:
+            pdf_bytes = generate_cluster_pdf_report(
+                cluster_id=selected,
+                selected_row=selected_row,
+                members=members,
+                subgraph=G.subgraph(members),
+                accounts=accounts,
+                orders=orders,
+                pair_resources=pair_resources,
+                resource_summary=resource_summary,
+                referrals=referrals,
+                impact=selected_impact,
+                active_threshold=threshold,
+            )
+        except Exception as pdf_err:
+            pdf_bytes = None
+
+        with st.container(border=True):
+            pdf_col1, pdf_col2 = st.columns([3.2, 1.4], vertical_alignment="center")
+            with pdf_col1:
+                st.markdown(f"### Cluster #{selected} Forensic Inspection")
+                st.caption(f"Inspecting **{len(members)}** linked accounts &bull; Predicted Risk Score: **{selected_row.risk_score:.3f}**")
+            with pdf_col2:
+                if pdf_bytes:
+                    st.download_button(
+                        "Export PDF Audit Report",
+                        pdf_bytes,
+                        file_name=f"Sentinel_Audit_Report_Cluster_{selected}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+
+        graph_tab, acct_graph_tab, impact_tab, shap_tab, members_tab = st.tabs(
+            ["Network graph", "Single account graph", "Business impact", "SHAP explanation", "Members"]
+        )
+
 
     with graph_tab:
         subgraph = G.subgraph(members)
@@ -672,37 +1827,39 @@ else:
             default=1.0,
         )
 
-        fcol1, fcol2, fcol3 = st.columns([1.25, 1.0, 1.0])
-        selected_resource_types = fcol1.multiselect(
-            "Edge resource types",
-            ["device", "payment", "address", "ip"],
-            default=["device", "payment", "address", "ip"],
-        )
-        min_edge_weight = fcol2.slider(
-            "Minimum edge weight",
-            0.0,
-            float(max_edge_weight),
-            0.0,
-            0.01,
-        )
-        min_node_degree = fcol3.slider(
-            "Minimum node weighted degree",
-            0.0,
-            float(max_node_degree),
-            0.0,
-            0.05,
-        )
+        with st.container(border=True):
+            st.markdown("##### Topology & Filtering Controls")
+            fcol1, fcol2, fcol3 = st.columns([1.4, 1.0, 1.0])
+            selected_resource_types = fcol1.multiselect(
+                "Edge Resource Types",
+                ["device", "payment", "address", "ip"],
+                default=["device", "payment", "address", "ip"],
+            )
+            min_edge_weight = fcol2.slider(
+                "Minimum Edge Weight",
+                0.0,
+                float(max_edge_weight),
+                0.0,
+                0.01,
+            )
+            min_node_degree = fcol3.slider(
+                "Min Weighted Degree",
+                0.0,
+                float(max_node_degree),
+                0.0,
+                0.05,
+            )
 
-        lcol1, lcol2, lcol3 = st.columns([1.0, 1.0, 1.0])
-        node_label_mode = lcol1.selectbox(
-            "Node labels",
-            ["Short account ID", "Full account ID", "Weighted degree", "Order value", "None"],
-        )
-        edge_label_mode = lcol2.selectbox(
-            "Edge labels",
-            ["Resource types", "Weight", "Shared count", "None"],
-        )
-        hide_isolated = lcol3.checkbox("Hide isolated nodes", value=True)
+            lcol1, lcol2, lcol3 = st.columns([1.0, 1.0, 1.0])
+            node_label_mode = lcol1.selectbox(
+                "Node Labels",
+                ["Short account ID", "Full account ID", "Weighted degree", "Order value", "None"],
+            )
+            edge_label_mode = lcol2.selectbox(
+                "Edge Labels",
+                ["Resource types", "Weight", "Shared count", "None"],
+            )
+            hide_isolated = lcol3.checkbox("Hide Isolated Nodes", value=True)
 
         filtered_subgraph = filter_cluster_graph(
             G,
@@ -714,11 +1871,25 @@ else:
             hide_isolated,
         )
 
-        gcol1, gcol2, gcol3, gcol4 = st.columns(4)
-        gcol1.metric("Members", len(members))
-        gcol2.metric("Visible nodes", filtered_subgraph.number_of_nodes())
-        gcol3.metric("Visible edges", filtered_subgraph.number_of_edges())
-        gcol4.metric("Risk score", f"{selected_row.risk_score:.3f}")
+        with st.container(border=True):
+            gcol1, gcol2, gcol3, gcol4 = st.columns(4)
+            gcol1.metric("Cluster Members", len(members))
+            gcol2.metric("Visible Nodes", filtered_subgraph.number_of_nodes())
+            gcol3.metric("Visible Edges", filtered_subgraph.number_of_edges())
+            gcol4.metric("Risk Score", f"{selected_row.risk_score:.3f}")
+
+        st.markdown(
+            """
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px; padding: 10px 16px; margin-bottom: 12px; font-family: Inter, sans-serif; font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+              <span style="font-weight: 600; color: #60a5fa; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.5px;">GRAPH LEGEND & GUIDE:</span>
+              <span><span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#f43f5e; margin-right:6px; vertical-align:middle;"></span> <strong style="color:#f8fafc;">Coral Red Nodes</strong> = High-Degree Central Hubs (&ge; Median Cluster Connectivity)</span>
+              <span><span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#3b82f6; margin-right:6px; vertical-align:middle;"></span> <strong style="color:#f8fafc;">Blue Nodes</strong> = Peripheral Member Accounts</span>
+              <span><strong style="color:#60a5fa;">Node Size</strong> = Proportional to Weighted Cluster Degree (larger circle = higher entity reuse volume)</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         components.html(
             render_cluster_graph_html(
                 filtered_subgraph,
@@ -739,6 +1910,62 @@ else:
                 resource_summary.resource_type.isin(selected_resource_types)
             ]
             st.dataframe(visible_resource_summary, width="stretch", hide_index=True)
+
+    with acct_graph_tab:
+        with st.container(border=True):
+            st.markdown("##### Target Account Ego-Graph Controls")
+            acol1, acol2, acol3 = st.columns([1.5, 1.0, 1.2])
+            target_acct_id = acol1.selectbox(
+                "Target Account ID",
+                options=members,
+                help="Select an account from this cluster to explore its ego-network radius."
+            )
+            ego_radius = acol2.slider("Hop Radius", 1, 3, 1, help="1-Hop: Direct resource sharers. 2-Hop: Extended network.")
+            ego_view_mode = acol3.radio("Graph Mode", ["Account Projection", "Entity Bipartite Tree"], horizontal=True)
+
+        # Single Account Summary Card
+        acct_orders = orders[orders.account_id == target_acct_id]
+        total_acct_spend = float(acct_orders["amount"].sum()) if len(acct_orders) else 0.0
+        n_orders = len(acct_orders)
+        
+        # Shared resources count for this target account
+        n_devs = len(account_device[account_device.account_id == target_acct_id])
+        n_pmts = len(account_payment[account_payment.account_id == target_acct_id])
+        n_ips = len(account_ip[account_ip.account_id == target_acct_id])
+        n_addrs = len(account_address[account_address.account_id == target_acct_id])
+        
+        with st.container(border=True):
+            sc1, sc2, sc3, sc4, sc5 = st.columns(5)
+            sc1.metric("Target Account", str(target_acct_id)[-8:])
+            sc2.metric("Total Spend", format_rs(total_acct_spend))
+            sc3.metric("Order Count", f"{n_orders}")
+            sc4.metric("Shared Entities", f"{n_devs + n_pmts + n_ips + n_addrs}")
+            sc5.metric("Cluster Risk Score", f"{selected_row.risk_score:.3f}")
+
+        ego_subgraph = build_single_account_ego_graph(
+            target_acct_id, G, account_device, account_payment,
+            account_address, account_ip, radius=ego_radius, view_mode=ego_view_mode
+        )
+
+        st.markdown(
+            """
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 10px; padding: 10px 16px; margin-bottom: 12px; font-family: Inter, sans-serif; font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;">
+              <span style="font-weight: 600; color: #fbbf24; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.5px;">EGO GRAPH LEGEND & GUIDE:</span>
+              <span><span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#f59e0b; margin-right:6px; vertical-align:middle;"></span> <strong style="color:#f8fafc;">Golden Amber Node</strong> = Target Account in Focus</span>
+              <span><span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#f43f5e; margin-right:6px; vertical-align:middle;"></span> <strong style="color:#f8fafc;">Red / Blue Nodes</strong> = Neighbor Accounts</span>
+              <span><strong style="color:#fbbf24;">Entity Shapes</strong> = Devices (Cyan Square), Payments (Purple Diamond), IPs (Green Circle), Addresses (Orange Circle)</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        components.html(
+            render_single_account_graph_html(
+                ego_subgraph, target_acct_id, accounts, orders, view_mode=ego_view_mode
+            ),
+            height=600,
+            scrolling=False,
+        )
 
     with impact_tab:
         selected_impact = compute_business_impact(
@@ -772,7 +1999,103 @@ else:
             xcol1, xcol2 = st.columns(2)
             xcol1.metric("Baseline risk", f"{shap_meta['baseline_risk']:.3f}")
             xcol2.metric("Explained cluster risk", f"{shap_meta['reconstructed_risk']:.3f}")
-            st.bar_chart(shap_table.set_index("feature")["shap_log_odds"])
+            shap_chart_df = shap_table.copy()
+            shap_chart_df["feature_display"] = shap_chart_df["feature"].map(FEATURE_LABELS).fillna(shap_chart_df["feature"])
+            max_val = float(shap_chart_df["shap_log_odds"].max()) if not shap_chart_df.empty else 1.0
+            min_val = float(shap_chart_df["shap_log_odds"].min()) if not shap_chart_df.empty else -0.5
+            domain_min = min(-0.1, min_val * 1.35) if min_val < 0 else -0.05
+            domain_max = max(0.1, max_val * 1.35) if max_val > 0 else 0.05
+
+            bars = alt.Chart(shap_chart_df).mark_bar(
+                cornerRadiusTopRight=4,
+                cornerRadiusBottomRight=4,
+                cornerRadiusTopLeft=4,
+                cornerRadiusBottomLeft=4,
+                size=20
+            ).encode(
+                x=alt.X(
+                    'shap_log_odds:Q',
+                    title='SHAP Log-Odds Risk Contribution (Positive = Increases Risk, Negative = Reduces Risk)',
+                    scale=alt.Scale(domain=[domain_min, domain_max]),
+                    axis=alt.Axis(
+                        labelFont='Inter',
+                        labelFontSize=11,
+                        labelColor='#94a3b8',
+                        titleColor='#94a3b8',
+                        titleFont='Inter',
+                        titleFontSize=11
+                    )
+                ),
+                y=alt.Y(
+                    'feature_display:N',
+                    title=None,
+                    sort='-x',
+                    axis=alt.Axis(
+                        labelFont='Inter',
+                        labelFontSize=12,
+                        labelColor='#f8fafc',
+                        labelPadding=14,
+                        labelLimit=400
+                    )
+                ),
+                color=alt.condition(
+                    alt.datum.shap_log_odds >= 0,
+                    alt.value('#3b82f6'),
+                    alt.value('#06b6d4')
+                ),
+                tooltip=['feature_display', 'shap_log_odds', 'direction', 'upward_share_pct']
+            )
+
+            text_pos = alt.Chart(shap_chart_df).transform_filter(
+                alt.datum.shap_log_odds >= 0
+            ).mark_text(
+                align='left',
+                baseline='middle',
+                dx=8,
+                color='#60a5fa',
+                font='JetBrains Mono',
+                fontSize=12,
+                fontWeight=600
+            ).encode(
+                x='shap_log_odds:Q',
+                y=alt.Y('feature_display:N', sort='-x'),
+                text=alt.Text('shap_log_odds:Q', format='+.3f')
+            )
+
+            text_neg = alt.Chart(shap_chart_df).transform_filter(
+                alt.datum.shap_log_odds < 0
+            ).mark_text(
+                align='right',
+                baseline='middle',
+                dx=-8,
+                color='#22d3ee',
+                font='JetBrains Mono',
+                fontSize=12,
+                fontWeight=600
+            ).encode(
+                x='shap_log_odds:Q',
+                y=alt.Y('feature_display:N', sort='-x'),
+                text=alt.Text('shap_log_odds:Q', format='+.3f')
+            )
+
+            rule = alt.Chart(pd.DataFrame({'x': [0]})).mark_rule(
+                color='rgba(255, 255, 255, 0.3)',
+                strokeDash=[4, 4],
+                strokeWidth=1.5
+            ).encode(x='x:Q')
+
+            chart = (bars + text_pos + text_neg + rule).properties(
+                height=max(200, len(shap_chart_df) * 55)
+            ).configure_view(
+                strokeWidth=0
+            ).configure_axis(
+                gridColor='rgba(255, 255, 255, 0.08)',
+                domainColor='rgba(255, 255, 255, 0.15)'
+            )
+
+            st.altair_chart(chart, use_container_width=True)
+
+
             st.dataframe(
                 shap_table.assign(
                     feature_value=lambda d: d.feature_value.round(4),
@@ -797,107 +2120,164 @@ else:
         )
         member_table["order_value"] = member_table["account_id"].map(order_totals).fillna(0.0)
 
-        # --- Per-account risk ranking (account_scoring module) ---
-        st.markdown("**Account risk ranking** — scored on account-local evidence only "
-                    "(resource sharing, graph position, creation timing, order pattern). "
-                    "Cluster-level features are intentionally excluded to avoid double-counting.")
+        # ---------------------------------------------------------------------------
+        # 1. Per-Account Risk Scoring & Evidence Matrix
+        # ---------------------------------------------------------------------------
+        st.markdown("##### Account Risk Ranking & Evidence Matrix")
+        st.caption("Scored on account-local evidence only (resource sharing, graph position, creation timing, order pattern). Cluster-level features are excluded to prevent double counting.")
+
+        acct_scores = None
         try:
             acct_scores = score_accounts_in_cluster(
                 selected, members, G,
                 account_device, account_payment, account_address, account_ip,
                 accounts, orders,
             )
+        except Exception as exc:
+            st.warning(f"Per-account scoring unavailable: {exc}")
+
+        if acct_scores is not None and not acct_scores.empty:
             display_acct = acct_scores[[
                 "account_id", "account_risk_score",
                 "n_shared_resources", "within_cluster_degree",
                 "within_cluster_edge_weight_sum",
                 "creation_date_centrality", "order_amount_centrality",
             ]].copy()
+            display_acct["order_value"] = display_acct["account_id"].map(order_totals).fillna(0.0)
             display_acct.columns = [
-                "Account ID", "Risk score",
-                "Shared resources", "Cluster degree",
-                "Edge weight sum", "Creation centrality", "Order centrality",
+                "Account ID", "Risk Score",
+                "Shared Resources", "Cluster Degree",
+                "Edge Weight Sum", "Creation Centrality", "Order Centrality", "Order Spend (Rs)",
             ]
             if ground_truth is not None:
                 gt_map = ground_truth.set_index("account_id")["is_ring_member"]
                 display_acct.insert(
-                    2, "Ring member ✓",
+                    2, "Ring Member",
                     display_acct["Account ID"].map(gt_map).fillna(False)
                 )
-            st.dataframe(
-                display_acct.style.background_gradient(
-                    subset=["Risk score"], cmap="YlOrRd", vmin=0.0, vmax=1.0
-                ),
-                width="stretch", hide_index=True,
-            )
-            st.caption(
-                "Risk score = mean of 5 min-max normalized features (all [0,1], higher = more suspicious). "
-                "Ties in the top feature produce equal scores — use 'Shared resources' and 'Cluster degree' "
-                "as tiebreakers."
-            )
-        except Exception as exc:
-            st.warning(f"Per-account scoring unavailable: {exc}")
+
+            # ---------------------------------------------------------------------------
+            # 2. Visual Risk Map (Interactive Scatter & Risk Tier Breakdown)
+            # ---------------------------------------------------------------------------
+            with st.container(border=True):
+                st.markdown("##### Member Risk Map Visualizer")
+                mcol_left, mcol_right = st.columns([2.0, 1.0])
+
+                with mcol_left:
+                    # Altair Scatter Risk Map
+                    scatter_chart = alt.Chart(display_acct).mark_circle(
+                        size=240, opacity=0.85
+                    ).encode(
+                        x=alt.X('Shared Resources:Q', title='Shared Resource Connections', axis=alt.Axis(labelFont='Inter', labelFontSize=11, labelColor='#94a3b8', titleColor='#94a3b8')),
+                        y=alt.Y('Order Spend (Rs):Q', title='Order Spend (Rs)', axis=alt.Axis(labelFont='Inter', labelFontSize=11, labelColor='#94a3b8', titleColor='#94a3b8')),
+                        color=alt.Color('Risk Score:Q', scale=alt.Scale(scheme='redyellowblue', reverse=True), title='Risk Score'),
+                        size=alt.Size('Risk Score:Q', scale=alt.Scale(range=[120, 500]), legend=None),
+                        tooltip=['Account ID', 'Risk Score', 'Shared Resources', 'Cluster Degree', 'Order Spend (Rs)']
+                    ).properties(height=280).configure_view(
+                        strokeWidth=0
+                    ).configure_axis(
+                        gridColor='rgba(255, 255, 255, 0.08)',
+                        domainColor='rgba(255, 255, 255, 0.15)'
+                    )
+                    st.altair_chart(scatter_chart, use_container_width=True)
+
+                with mcol_right:
+                    # Risk Tier Distribution
+                    n_high = (display_acct["Risk Score"] >= 0.7).sum()
+                    n_med = ((display_acct["Risk Score"] >= 0.4) & (display_acct["Risk Score"] < 0.7)).sum()
+                    n_low = (display_acct["Risk Score"] < 0.4).sum()
+                    
+                    st.markdown("###### Risk Tier Breakdown")
+                    rc1, rc2, rc3 = st.columns(3)
+                    rc1.metric("High Risk", f"{n_high}")
+                    rc2.metric("Med Risk", f"{n_med}")
+                    rc3.metric("Low Risk", f"{n_low}")
+                    
+                    st.caption("Accounts with Risk Score >= 0.70 are flagged for high forensic priority (Leader/Operator profiles).")
+
+            with st.container(border=True):
+                st.dataframe(
+                    display_acct.style.background_gradient(
+                        subset=["Risk Score"], cmap="YlOrRd", vmin=0.0, vmax=1.0
+                    ),
+                    width="stretch", hide_index=True,
+                )
+                st.caption(
+                    "Risk score = mean of 5 min-max normalized features (all [0,1], higher = more suspicious). "
+                    "Use 'Shared Resources' and 'Cluster Degree' as primary tiebreakers."
+                )
 
         st.divider()
 
-        # --- Referral chain signals for this cluster ---
+        # ---------------------------------------------------------------------------
+        # 3. Referral Chain Signals
+        # ---------------------------------------------------------------------------
         if referrals is not None and not referrals.empty:
-            # Find all referral edges where at least one endpoint is a cluster member
             member_set = set(members)
             ref_in = referrals[
                 referrals["referrer_id"].isin(member_set) | referrals["referred_id"].isin(member_set)
             ].copy()
             if not ref_in.empty:
-                ref_in["referral_date"] = pd.to_datetime(ref_in["referral_date"]).dt.date
-                # Flag edges fully within the cluster vs. crossing the boundary
-                ref_in["edge_type"] = ref_in.apply(
-                    lambda row: "within cluster"
-                    if row["referrer_id"] in member_set and row["referred_id"] in member_set
-                    else ("referrer in cluster" if row["referrer_id"] in member_set
-                          else "referred is member"),
-                    axis=1,
-                )
-                n_within = (ref_in.edge_type == "within cluster").sum()
-                st.markdown(
-                    f"**Referral chain signals** — {len(ref_in)} referral edges involve "
-                    f"this cluster's members ({n_within} within cluster, "
-                    f"{len(ref_in) - n_within} crossing cluster boundary)"
-                )
-                # Show referral feature values for this cluster if computed
-                cluster_ref_feat = features[features.cluster_id == selected]
-                ref_feat_present = all(c in cluster_ref_feat.columns for c in REFERRAL_FEATURE_COLS)
-                if ref_feat_present:
-                    rfcols = st.columns(4)
-                    rfcols[0].metric(
-                        "Cycle ratio",
-                        f"{cluster_ref_feat['referral_cycle_ratio'].values[0]:.3f}",
-                        help="Fraction of members in directed referral cycles. >0 is unusual in organic referral trees.",
+                with st.container(border=True):
+                    ref_in["referral_date"] = pd.to_datetime(ref_in["referral_date"]).dt.date
+                    ref_in["edge_type"] = ref_in.apply(
+                        lambda row: "within cluster"
+                        if row["referrer_id"] in member_set and row["referred_id"] in member_set
+                        else ("referrer in cluster" if row["referrer_id"] in member_set
+                              else "referred is member"),
+                        axis=1,
                     )
-                    rfcols[1].metric(
-                        "Resource overlap",
-                        f"{cluster_ref_feat['referral_resource_overlap_ratio'].values[0]:.3f}",
-                        help="Fraction of referral edges where both accounts share a resource. High = deliberate combination.",
+                    n_within = (ref_in.edge_type == "within cluster").sum()
+                    st.markdown(
+                        f"##### Referral Chain Signals ({len(ref_in)} edges)"
                     )
-                    rfcols[2].metric(
-                        "Median activation (days)",
-                        f"{cluster_ref_feat['median_referral_activation_days'].values[0]:.1f}d",
-                        help="Median days from referral to first order. Ring operators activate fast (<7d); organic spread 0-30d.",
+                    st.caption(f"{n_within} edges internal to cluster, {len(ref_in) - n_within} crossing cluster boundary.")
+                    
+                    cluster_ref_feat = features[features.cluster_id == selected]
+                    ref_feat_present = all(c in cluster_ref_feat.columns for c in REFERRAL_FEATURE_COLS)
+                    if ref_feat_present:
+                        rfcols = st.columns(4)
+                        rfcols[0].metric(
+                            "Cycle ratio",
+                            f"{cluster_ref_feat['referral_cycle_ratio'].values[0]:.3f}",
+                            help="Fraction of members in directed referral cycles. >0 is unusual in organic referral trees.",
+                        )
+                        rfcols[1].metric(
+                            "Resource overlap",
+                            f"{cluster_ref_feat['referral_resource_overlap_ratio'].values[0]:.3f}",
+                            help="Fraction of referral edges where both accounts share a resource.",
+                        )
+                        rfcols[2].metric(
+                            "Median activation",
+                            f"{cluster_ref_feat['median_referral_activation_days'].values[0]:.1f}d",
+                            help="Median days from referral to first order.",
+                        )
+                        rfcols[3].metric(
+                            "Referral density",
+                            f"{cluster_ref_feat['within_cluster_referral_density'].values[0]:.3f}",
+                            help="Fraction of member pairs with a referral edge.",
+                        )
+                    st.dataframe(
+                        ref_in[["referrer_id", "referred_id", "referral_date", "bonus_amount", "edge_type"]]
+                        .sort_values("referral_date"),
+                        width="stretch", hide_index=True,
                     )
-                    rfcols[3].metric(
-                        "Within-cluster density",
-                        f"{cluster_ref_feat['within_cluster_referral_density'].values[0]:.3f}",
-                        help="Fraction of member pairs with a referral edge. High = coordinated referral activity.",
-                    )
-                st.dataframe(
-                    ref_in[["referrer_id", "referred_id", "referral_date", "bonus_amount", "edge_type"]]
-                    .sort_values("referral_date"),
-                    width="stretch", hide_index=True,
-                )
             else:
                 st.info("No referral edges found for members of this cluster.")
 
-        st.write(f"**{len(members)} member accounts (all, unsorted):**")
-        st.code("\n".join(members))
+        # ---------------------------------------------------------------------------
+        # 4. Member Account Roster Table
+        # ---------------------------------------------------------------------------
+        with st.container(border=True):
+            st.markdown(f"##### Cluster Member Roster ({len(members)} Accounts)")
+            st.dataframe(member_table, width="stretch", hide_index=True)
+
 
 st.divider()
-st.caption("Built for the Razorpay AI Buildathon 2026, Track 02. Read-only demonstration tool.")
+st.markdown(
+    "<div style='text-align: center; color: #64748b; font-size: 13px; font-weight: 500; padding: 4px 0;'>"
+    "Developed by <a href='https://github.com/kanik10' target='_blank' style='color: #60a5fa; text-decoration: none; font-weight: 600;'>@kanik10</a> &bull; "
+    "Graph Risk Intelligence & Abuse-Ring Sentinel Platform &bull; 2026"
+    "</div>",
+    unsafe_allow_html=True,
+)
