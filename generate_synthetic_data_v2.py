@@ -13,6 +13,19 @@ Realism upgrades over v1:
   4. Ring order behavior is a MIX of "blends in" and "obviously cheap"
      accounts, not a uniformly low mean -> closes the avg_order_amount
      shortcut from v1.
+  5. Every account-resource link (device/payment/address/IP) now carries a
+     first_seen_date, so downstream code can reconstruct the graph "as of"
+     any point in time T instead of only the final end-state -- needed to
+     measure detection latency, not just end-state accuracy.
+     MODELING ASSUMPTION: first_seen_date = that account's creation_date.
+     Chosen over "first order date" because every account has exactly one
+     creation_date, while ~300/6484 accounts here have zero orders (an
+     as-of-T reconstruction anchored on order date would leave those
+     accounts' resource links permanently undated). This does mean a
+     resource link is treated as existing from account creation, not from
+     whenever it was first actually observed in a transaction -- a
+     simplification worth stating plainly, same spirit as the entity
+     resolution and leakage-guard callouts elsewhere in this file.
 
 `raw_to_true_resource.csv` keeps the perturbation->true-ID mapping for
 evaluating entity resolution quality ONLY — it must never be used by the
@@ -126,6 +139,13 @@ ground_truth = []
 referrals = []             # referrer_id, referred_id, referral_date, bonus_amount
 referral_ground_truth_rows = []  # eval only: referrer_id, referred_id, is_ring_referral
 referral_ring_member_ids = set()
+aid_to_creation_date = {}  # account_id -> date(), populated by add_account_row, read by
+                           # record_usage. Populating it here (instead of threading a date
+                           # argument through every one of the ~8 record_usage call sites
+                           # across legit/ring/referral-ring generation) means every call
+                           # site automatically gets a correct first_seen_date for free,
+                           # including coincidental-group and bridge call sites where the
+                           # account was created much earlier in a different code section.
 
 
 def add_account_row(aid, creation_date):
@@ -133,11 +153,15 @@ def add_account_row(aid, creation_date):
         "account_id": aid, "creation_date": creation_date.date(),
         "name": fake.name(), "email_domain": random.choice(EMAIL_DOMAINS),
     })
+    aid_to_creation_date[aid] = creation_date.date()
 
 
 def record_usage(mapping_list, resource_type, aid, true_id):
     observed = perturb(true_id)
-    mapping_list.append({"account_id": aid, "resource_id": observed})
+    mapping_list.append({
+        "account_id": aid, "resource_id": observed,
+        "first_seen_date": aid_to_creation_date[aid],
+    })
     raw_to_true.append({"resource_type": resource_type, "observed": observed, "true_id": true_id})
 
 
@@ -492,4 +516,10 @@ print(f"Total resource usages: {len(rtt)}, "
       f"perturbed (messy) observations: {(rtt.observed != rtt.true_id).sum()} "
       f"({(rtt.observed != rtt.true_id).mean():.1%})")
 print(f"IP usages: {len(account_ip)}")
+n_missing_first_seen = sum(
+    1 for lst in (account_device, account_payment, account_address, account_ip)
+    for row in lst if row.get("first_seen_date") is None
+)
+print(f"Resource-edge first_seen_date: populated for all rows "
+      f"({n_missing_first_seen} missing) -- enables as-of-T temporal reconstruction.")
 print(f"Wrote generated CSVs to: {OUTPUT_DIR}")
