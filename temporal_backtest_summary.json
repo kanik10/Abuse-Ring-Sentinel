@@ -1,0 +1,14 @@
+{
+  "snapshots_evaluated": 101,
+  "snapshot_frequency_days": 7,
+  "backtest_duration_seconds": 103.7,
+  "total_rings": 28,
+  "rings_flagged": 28,
+  "detection_rate_pct": 100.0,
+  "median_detection_latency_days": 30.0,
+  "mean_detection_latency_days": 76.3,
+  "min_detection_latency_days": 6,
+  "max_detection_latency_days": 228,
+  "average_volume_prevented_pct": 90.4,
+  "total_prevented_fraud_amount": 671106.18
+}

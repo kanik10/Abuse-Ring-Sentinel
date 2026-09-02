@@ -29,7 +29,9 @@ from threshold_config import CHOSEN_THRESHOLD  # reads pooled_threshold_selectio
                                                # run pooled_threshold_selection.py to update.
 
 DATA_DIR = "day1_data"
+from referral_features import REFERRAL_FEATURE_COLS
 PURE_GRAPH_FEATURES = ["cluster_size", "entity_reuse_ratio", "internal_density"]
+CHAMPION_FEATURE_COLS = PURE_GRAPH_FEATURES + REFERRAL_FEATURE_COLS
 
 class RecommendedAction(Enum):
     """Deliberately the ONLY member this enum will ever have in this
@@ -60,10 +62,11 @@ class ClusterRiskOutput:
 
 
 def train_final_model(features: pd.DataFrame, labels: pd.Series):
-    """The model actually shipped -- fit on all current clusters, not a CV fold.
+    """The model actually shipped -- fit on all current clusters with both
+    pure graph and referral features.
     CV in Day 3/4 was for honest evaluation; this is the artifact a real
     deployment would load."""
-    X = features[PURE_GRAPH_FEATURES].values
+    X = features[CHAMPION_FEATURE_COLS].values
     y = labels.values
     model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000, random_state=42))
     model.fit(X, y)
@@ -96,7 +99,7 @@ def score_all_clusters(features: pd.DataFrame, clusters: pd.DataFrame, model,
     If G, accounts, and orders are supplied, also runs per-account scoring
     (account_scoring.score_all_flagged_accounts) and attaches the results to
     each ClusterRiskOutput.account_scores."""
-    X = features[PURE_GRAPH_FEATURES].values
+    X = features[CHAMPION_FEATURE_COLS].values
     risk_scores = model.predict_proba(X)[:, 1]
 
     outputs = []
@@ -116,7 +119,7 @@ def score_all_clusters(features: pd.DataFrame, clusters: pd.DataFrame, model,
             risk_score=round(score, 4),
             member_account_ids=members,
             shared_resources=shared,
-            contributing_features={f: round(float(row[f]), 4) for f in PURE_GRAPH_FEATURES},
+            contributing_features={f: round(float(row[f]), 4) for f in CHAMPION_FEATURE_COLS},
         ))
 
     # Per-account scoring pass (runs only if graph + data are available)

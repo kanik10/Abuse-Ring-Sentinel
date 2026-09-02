@@ -1,2 +1,64 @@
+# ─── Python ───
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# ─── Virtual Environments ───
+venv/
+.venv/
+env/
+.env/
+
+# ─── IDE / Editor ───
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ─── OS Generated ───
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ─── Jupyter / IPython ───
+.ipynb_checkpoints/
+*.ipynb
+
+# ─── ML Model Artifacts ───
+*.joblib
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.onnx
+
+# ─── Streamlit ───
+.streamlit/secrets.toml
+
+# ─── Logs & Temp ───
+*.log
+*.tmp
+*.bak
+audit_log.jsonl
+
+# ─── Scratch / Dev Files ───
+scratch_app.py
+scratch_write.py
+build_app.py
+
+# ─── Legacy ───
+legacy_v1/
+
+# ─── Multi-seed evaluation runs ───
+multi_seed_runs/

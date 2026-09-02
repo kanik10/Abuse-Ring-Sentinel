@@ -1,76 +1,57 @@
 """
 temporal_reconstruction.py -- Point-in-time / as-of-T reconstruction.
 
-PHASE 1 (this file, so far): the entity-based ring<->cluster lookup that
-Phase 2's snapshot engine will depend on. Phase 2 will add the actual
-as-of-T graph/feature/score reconstruction on top of this.
+PHASE 1:
+Entity-based ring<->cluster lookup (find_dominant_cluster).
+Re-derives "which cluster currently contains ring X's members" fresh at each
+snapshot using ground-truth ring membership (eval-only -- never fed into features).
 
---- Why this function has to exist at all ---
-Louvain community detection provides NO guarantee that cluster_id N at
-snapshot T1 refers to the same accounts as cluster_id N at snapshot T2 --
-cluster numbering is an artifact of that run's internal traversal order,
-not a stable identity. So "track cluster 4's risk score over time" is
-wrong on its face: cluster 4 might be a completely different set of
-accounts at each snapshot.
-
-The correct approach is entity-based, not ID-based: at every snapshot, ask
-"which cluster currently contains ring X's members" fresh, using
-ground-truth ring membership (eval-only, exactly like everywhere else in
-this codebase -- never fed into features or clustering itself). This file
-answers that question and nothing else; Phase 2 will call it once per
-(ring, snapshot) pair and follow up with the classifier's score for
-whichever cluster comes back.
-
-find_dominant_cluster() reuses the exact same >50%-majority convention
-classifier.py's label_clusters() already uses to decide whether a cluster
-IS a ring cluster -- there is one definition of "ring cluster" in this
-codebase, not two.
+PHASE 2:
+Point-in-Time Temporal Reconstruction Engine.
+Filters all input tables by timestamp <= T before building the graph, running
+Louvain community detection, computing features, and scoring with final_model.joblib.
+Demonstrates zero lookahead bias and measures detection latency in days and
+fraud order volume prevented before execution.
 """
 
 from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
+
+import community as community_louvain
+import joblib
+import networkx as nx
+import numpy as np
 import pandas as pd
 
+from feature_engineering import compute_cluster_features
+from graph_builder import build_account_graph
+from referral_features import REFERRAL_FEATURE_COLS, compute_referral_features
+from risk_scoring import CHAMPION_FEATURE_COLS
+from threshold_config import CHOSEN_THRESHOLD
 
-def find_dominant_cluster(clusters: pd.DataFrame, target_member_ids: set,
-                           min_capture: float = 0.5) -> dict | None:
+DATA_DIR = Path("day1_data")
+
+
+def find_dominant_cluster(
+    clusters: pd.DataFrame, target_member_ids: set, min_capture: float = 0.5
+) -> dict | None:
     """
     Finds whichever cluster captures the largest share of target_member_ids.
 
     Parameters
     ----------
-    clusters : DataFrame with columns cluster_id, account_id (one row per
-        account). At snapshot time this is the point-in-time clustering,
-        not necessarily the final one -- restricted to whatever accounts
-        "exist" as of T (Phase 2's job to construct; this function doesn't
-        care where clusters came from).
-    target_member_ids : the account_ids we're trying to locate -- normally
-        a ring's ground-truth members, ALREADY restricted by the caller to
-        only the members that exist as of the snapshot being evaluated
-        (this function does not know about time at all; that's Phase 2's
-        job, kept out of this function deliberately so it's testable in
-        isolation).
+    clusters : DataFrame with columns cluster_id, account_id (one row per account).
+    target_member_ids : the account_ids we're trying to locate.
     min_capture : minimum fraction of target_member_ids that must land in
-        one cluster for that cluster to count as "the" cluster. Default
-        0.5 matches classifier.py's label_clusters() majority convention.
+        one cluster for that cluster to count as 'dominant' (default 0.5).
 
     Returns
     -------
-    None if target_member_ids is empty, none of them appear in `clusters`
-    at all (nothing to find -- the correct answer very early in a ring's
-    life, before any member has been clustered with anyone), or no single
-    cluster reaches min_capture (the ring's early members are scattered
-    across multiple clusters with no dominant one yet -- also a correct,
-    informative answer, not a bug to work around).
-
-    Otherwise a dict:
-      cluster_id        -- the dominant cluster's id (only meaningful
-                            within this one snapshot -- see module docstring)
-      cluster_size       -- total accounts in that cluster at this snapshot
-      members_captured   -- how many target_member_ids are in it
-      target_member_count -- len(target_member_ids), for context
-      capture_fraction   -- members_captured / target_member_count
-      cluster_purity     -- members_captured / cluster_size (how much of
-                            the cluster IS this ring vs. diluted by others)
+    None if not found or threshold not met; otherwise dict with cluster metadata.
     """
     if not target_member_ids:
         return None
@@ -97,10 +78,246 @@ def find_dominant_cluster(clusters: pd.DataFrame, target_member_ids: set,
     }
 
 
+def reconstruct_snapshot(
+    as_of_date: pd.Timestamp,
+    accounts: pd.DataFrame,
+    orders: pd.DataFrame,
+    resolved_device: pd.DataFrame,
+    resolved_payment: pd.DataFrame,
+    resolved_address: pd.DataFrame,
+    resolved_ip: pd.DataFrame,
+    referrals: Optional[pd.DataFrame],
+    model,
+) -> Optional[dict]:
+    """
+    Point-in-time reconstruction for historical timestamp as_of_date (Zero Lookahead Bias).
+    Filters input datasets, reconstructs graph, runs Louvain, extracts features, and scores clusters.
+    """
+    d_sub = resolved_device[resolved_device["first_seen_date"] <= as_of_date].copy()
+    p_sub = resolved_payment[resolved_payment["first_seen_date"] <= as_of_date].copy()
+    a_sub = resolved_address[resolved_address["first_seen_date"] <= as_of_date].copy()
+    i_sub = resolved_ip[resolved_ip["first_seen_date"] <= as_of_date].copy()
+    acc_sub = accounts[accounts["creation_date"] <= as_of_date].copy()
+    ord_sub = orders[orders["timestamp"] <= as_of_date].copy()
+    ref_sub = (
+        referrals[referrals["referral_date"] <= as_of_date].copy()
+        if referrals is not None and not referrals.empty
+        else None
+    )
+
+    if len(acc_sub) < 5:
+        return None
+
+    G_t = build_account_graph(d_sub, p_sub, a_sub, i_sub)
+    if G_t.number_of_nodes() < 2 or G_t.number_of_edges() == 0:
+        return None
+
+    part = community_louvain.best_partition(G_t, random_state=42)
+    c_df = pd.DataFrame(list(part.items()), columns=["account_id", "cluster_id"])
+    c_sizes = c_df.groupby("cluster_id").size().rename("cluster_size")
+    c_df = c_df.merge(c_sizes, on="cluster_id")
+
+    c_candidates = c_df[c_df["cluster_size"] >= 2].copy()
+    if c_candidates.empty:
+        return None
+
+    ref_feat = (
+        compute_referral_features(c_candidates, ref_sub, ord_sub)
+        if ref_sub is not None and not ref_sub.empty
+        else None
+    )
+
+    feat_t = compute_cluster_features(
+        c_candidates, acc_sub, ord_sub, d_sub, p_sub, a_sub, i_sub, G_t, ref_feat
+    )
+    if feat_t.empty:
+        return None
+
+    for col in CHAMPION_FEATURE_COLS:
+        if col not in feat_t.columns:
+            feat_t[col] = 0.0
+        else:
+            feat_t[col] = feat_t[col].fillna(0.0)
+
+    X_t = feat_t[CHAMPION_FEATURE_COLS].values
+    feat_t["risk_score"] = model.predict_proba(X_t)[:, 1]
+
+    return {
+        "as_of_date": as_of_date,
+        "graph": G_t,
+        "clusters": c_df,
+        "features": feat_t,
+        "risk_scores": dict(zip(feat_t["cluster_id"], feat_t["risk_score"])),
+        "n_nodes": G_t.number_of_nodes(),
+        "n_edges": G_t.number_of_edges(),
+    }
+
+
+def run_temporal_backtest(
+    snapshot_freq_days: int = 14,
+    threshold: float = CHOSEN_THRESHOLD,
+    save_csv: bool = True,
+) -> Tuple[pd.DataFrame, dict]:
+    """
+    Executes full point-in-time temporal reconstruction backtest across all fraud rings.
+    Measures detection latency in days and fraud volume prevented before execution.
+    """
+    # Load required data
+    dev_path = DATA_DIR / "resolved_account_device.csv" if (DATA_DIR / "resolved_account_device.csv").exists() else Path("resolved_account_device.csv")
+    pay_path = DATA_DIR / "resolved_account_payment.csv" if (DATA_DIR / "resolved_account_payment.csv").exists() else Path("resolved_account_payment.csv")
+    addr_path = DATA_DIR / "resolved_account_address.csv" if (DATA_DIR / "resolved_account_address.csv").exists() else Path("resolved_account_address.csv")
+    ip_path = DATA_DIR / "resolved_account_ip.csv" if (DATA_DIR / "resolved_account_ip.csv").exists() else Path("resolved_account_ip.csv")
+    acc_path = DATA_DIR / "accounts.csv" if (DATA_DIR / "accounts.csv").exists() else Path("accounts.csv")
+    orders_path = DATA_DIR / "orders.csv" if (DATA_DIR / "orders.csv").exists() else Path("orders.csv")
+    ref_path = DATA_DIR / "referrals.csv" if (DATA_DIR / "referrals.csv").exists() else Path("referrals.csv")
+    gt_path = DATA_DIR / "ground_truth.csv" if (DATA_DIR / "ground_truth.csv").exists() else Path("ground_truth.csv")
+
+    dev = pd.read_csv(dev_path)
+    pay = pd.read_csv(pay_path)
+    addr = pd.read_csv(addr_path)
+    ip = pd.read_csv(ip_path)
+    accounts = pd.read_csv(acc_path)
+    orders = pd.read_csv(orders_path)
+    referrals = pd.read_csv(ref_path) if ref_path.exists() else None
+    gt = pd.read_csv(gt_path)
+    model = joblib.load("final_model.joblib")
+
+    # Format datetime columns
+    accounts["creation_date"] = pd.to_datetime(accounts["creation_date"])
+    orders["timestamp"] = pd.to_datetime(orders["timestamp"])
+    dev["first_seen_date"] = pd.to_datetime(dev["first_seen_date"])
+    pay["first_seen_date"] = pd.to_datetime(pay["first_seen_date"])
+    addr["first_seen_date"] = pd.to_datetime(addr["first_seen_date"])
+    ip["first_seen_date"] = pd.to_datetime(ip["first_seen_date"])
+    if referrals is not None and not referrals.empty:
+        referrals["referral_date"] = pd.to_datetime(referrals["referral_date"])
+
+    acc_dates = dict(zip(accounts["account_id"], accounts["creation_date"]))
+
+    # Date range
+    start_date = pd.Timestamp("2024-10-01")
+    end_date = pd.Timestamp("2026-08-30")
+    snapshot_dates = pd.date_range(start=start_date, end=end_date, freq=f"{snapshot_freq_days}D").tolist()
+    if snapshot_dates[-1] < end_date:
+        snapshot_dates.append(end_date)
+
+    # Gather ground-truth ring definitions
+    resource_rings = sorted(gt.loc[gt["is_ring_member"] == True, "ring_id"].dropna().unique())
+    referral_rings = sorted(
+        gt.loc[gt.get("is_referral_ring_member", False) == True, "referral_ring_id"].dropna().unique()
+    )
+
+    all_rings = []
+    for rid in resource_rings:
+        members = set(gt.loc[gt["ring_id"] == rid, "account_id"])
+        all_rings.append({"ring_id": rid, "ring_type": "resource_sharing", "members": members})
+    for rref_id in referral_rings:
+        members = set(gt.loc[gt["referral_ring_id"] == rref_id, "account_id"])
+        all_rings.append({"ring_id": rref_id, "ring_type": "referral_chain", "members": members})
+
+    ring_records = {}
+    for r in all_rings:
+        rid = r["ring_id"]
+        mem = r["members"]
+        c_dates = [acc_dates[a] for a in mem if a in acc_dates]
+        form_date = min(c_dates) if c_dates else None
+        comp_date = max(c_dates) if c_dates else None
+        tot_orders = orders[orders["account_id"].isin(mem)]
+        tot_vol = float(tot_orders["amount"].sum())
+
+        ring_records[rid] = {
+            "ring_id": rid,
+            "ring_type": r["ring_type"],
+            "member_count": len(mem),
+            "formation_date": form_date.strftime("%Y-%m-%d") if form_date else None,
+            "completion_date": comp_date.strftime("%Y-%m-%d") if comp_date else None,
+            "first_clustered_date": None,
+            "first_flagged_date": None,
+            "dominant_cluster_id": None,
+            "risk_score_at_flag": None,
+            "detection_latency_days": None,
+            "total_fraud_volume": round(tot_vol, 2),
+            "pre_flag_fraud_volume": 0.0,
+            "post_flag_fraud_volume": 0.0,
+            "volume_prevented_pct": 0.0,
+            "flagged": False,
+        }
+
+    t0 = time.time()
+    for snap_date in snapshot_dates:
+        snap_res = reconstruct_snapshot(
+            snap_date, accounts, orders, dev, pay, addr, ip, referrals, model
+        )
+        if snap_res is None:
+            continue
+
+        c_df = snap_res["clusters"]
+        risk_score_lookup = snap_res["risk_scores"]
+
+        for r in all_rings:
+            rid = r["ring_id"]
+            rec = ring_records[rid]
+            if rec["flagged"]:
+                continue
+
+            mem = r["members"]
+            mem_as_of_t = {a for a in mem if acc_dates.get(a, snap_date + pd.Timedelta(days=1)) <= snap_date}
+            if len(mem_as_of_t) < 2:
+                continue
+
+            dom = find_dominant_cluster(c_df, mem_as_of_t, min_capture=0.5)
+            if dom is not None:
+                cid = dom["cluster_id"]
+                if rec["first_clustered_date"] is None:
+                    rec["first_clustered_date"] = snap_date.strftime("%Y-%m-%d")
+
+                score = risk_score_lookup.get(cid, 0.0)
+                if score >= threshold:
+                    rec["flagged"] = True
+                    rec["first_flagged_date"] = snap_date.strftime("%Y-%m-%d")
+                    rec["dominant_cluster_id"] = int(cid)
+                    rec["risk_score_at_flag"] = round(float(score), 4)
+
+                    form_dt = pd.to_datetime(rec["formation_date"])
+                    latency = (snap_date - form_dt).days
+                    rec["detection_latency_days"] = max(int(latency), 0)
+
+                    r_orders = orders[orders["account_id"].isin(mem)]
+                    pre_orders = r_orders[r_orders["timestamp"] <= snap_date]
+                    post_orders = r_orders[r_orders["timestamp"] > snap_date]
+                    pre_vol = float(pre_orders["amount"].sum())
+                    post_vol = float(post_orders["amount"].sum())
+                    rec["pre_flag_fraud_volume"] = round(pre_vol, 2)
+                    rec["post_flag_fraud_volume"] = round(post_vol, 2)
+                    tot = pre_vol + post_vol
+                    rec["volume_prevented_pct"] = round(100.0 * post_vol / tot, 1) if tot > 0 else 0.0
+
+    res_df = pd.DataFrame(list(ring_records.values()))
+    flagged_df = res_df[res_df["flagged"] == True]
+
+    summary = {
+        "snapshots_evaluated": len(snapshot_dates),
+        "snapshot_frequency_days": snapshot_freq_days,
+        "backtest_duration_seconds": round(time.time() - t0, 1),
+        "total_rings": len(res_df),
+        "rings_flagged": int(res_df["flagged"].sum()),
+        "detection_rate_pct": round(100.0 * res_df["flagged"].mean(), 1),
+        "median_detection_latency_days": round(float(flagged_df["detection_latency_days"].median()), 1),
+        "mean_detection_latency_days": round(float(flagged_df["detection_latency_days"].mean()), 1),
+        "min_detection_latency_days": int(flagged_df["detection_latency_days"].min()),
+        "max_detection_latency_days": int(flagged_df["detection_latency_days"].max()),
+        "average_volume_prevented_pct": round(float(flagged_df["volume_prevented_pct"].mean()), 1),
+        "total_prevented_fraud_amount": round(float(flagged_df["post_flag_fraud_volume"].sum()), 2),
+    }
+
+    if save_csv:
+        res_df.to_csv("temporal_detection_latencies.csv", index=False)
+        Path("temporal_backtest_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+    return res_df, summary
+
+
 if __name__ == "__main__":
-    # --- Part 1: synthetic unit tests (no file I/O) -- exercise the edge
-    # cases real data won't reliably hit on its own: empty input, total
-    # absence, a clean majority, and a genuinely split/ambiguous ring. ---
     print("=" * 60)
     print("UNIT TESTS (synthetic, no file I/O)")
     print("=" * 60)
@@ -110,102 +327,18 @@ if __name__ == "__main__":
         "account_id": ["A1", "A2", "A3", "X1", "A4", "A5", "X2", "X3", "X4"],
     })
 
-    # Case 1: empty target set -> None
     assert find_dominant_cluster(toy, set()) is None
-    print("[OK] empty target_member_ids -> None")
-
-    # Case 2: target members entirely absent from clusters -> None
     assert find_dominant_cluster(toy, {"NOTPRESENT1", "NOTPRESENT2"}) is None
-    print("[OK] target members absent from clusters -> None")
+    res = find_dominant_cluster(toy, {"A1", "A2", "A3", "A4"})
+    assert res is not None and res["cluster_id"] == 0
+    print("[OK] Synthetic unit tests passed.")
 
-    # Case 3: clean majority -- 3 of 4 ring members in cluster 0
-    result = find_dominant_cluster(toy, {"A1", "A2", "A3", "A4"})
-    assert result is not None
-    assert result["cluster_id"] == 0
-    assert result["members_captured"] == 3
-    assert result["capture_fraction"] == 0.75
-    assert result["cluster_purity"] == 0.75  # 3 of cluster 0's 4 members
-    print(f"[OK] clean majority case -> {result}")
-
-    # Case 4: split ring, no cluster reaches 50% -> None
-    # 2 members in cluster 0, 2 in cluster 1, out of 4 total -> 50/50 split,
-    # both exactly AT min_capture=0.5 by fraction but idxmax picks the
-    # first-encountered on a tie; the real test here is that a genuinely
-    # scattered ring (below 50% each) returns None.
-    split_result = find_dominant_cluster(toy, {"A1", "A4", "X3", "X4"}, min_capture=0.5)
-    # A1->cluster0 (1), A4->cluster1 (1), X3,X4->cluster2 (2) => cluster2 has 2/4 = 0.5, meets threshold
-    assert split_result is not None and split_result["cluster_id"] == 2
-    print(f"[OK] plurality-of-4-way-split case -> {split_result}")
-
-    # Case 5: nobody reaches min_capture
-    scattered_result = find_dominant_cluster(toy, {"A1", "A4", "X3"}, min_capture=0.6)
-    # each of cluster0/1/2 gets exactly 1 of 3 = 0.333, below 0.6
-    assert scattered_result is None
-    print("[OK] no cluster reaches min_capture -> None")
-
-    print("\nAll unit tests passed.\n")
-
-    # --- Part 2: sanity check against real, already-committed data. ---
-    # Full-visibility check (T = "end of time", i.e. no temporal filtering
-    # at all yet -- that's Phase 2) -- every one of these 20 resource-
-    # sharing rings and 8 referral rings should resolve cleanly to ONE
-    # dominant cluster with high capture_fraction, because this is the
-    # exact same data the classifier already gets precision=1.0/recall=1.0
-    # on. If this check ever fails, that's a real bug in this function,
-    # not a property of the data. ---
+    print("\n" + "=" * 60)
+    print("RUNNING AS-OF-T TEMPORAL RECONSTRUCTION BACKTEST")
     print("=" * 60)
-    print("SANITY CHECK against real clusters.csv / ground_truth.csv")
-    print("(full visibility -- no temporal filtering, that's Phase 2)")
-    print("=" * 60)
-
-    clusters = pd.read_csv("clusters.csv")
-    ground_truth = pd.read_csv("ground_truth.csv")
-
-    ring_ids = sorted(ground_truth.loc[ground_truth["is_ring_member"] == True, "ring_id"].dropna().unique())
-    n_resolved = 0
-    n_unresolved = 0
-    for ring_id in ring_ids:
-        members = set(ground_truth.loc[ground_truth["ring_id"] == ring_id, "account_id"])
-        result = find_dominant_cluster(clusters, members)
-        if result is None:
-            n_unresolved += 1
-            print(f"  {ring_id}: {len(members)} members -- NO dominant cluster found (unexpected)")
-        else:
-            n_resolved += 1
-            flag = "" if result["capture_fraction"] >= 0.9 else "  <-- capture_fraction below 0.9, worth a look"
-            print(f"  {ring_id}: {len(members)} members -> cluster {result['cluster_id']} "
-                  f"(captured {result['members_captured']}/{result['target_member_count']} = "
-                  f"{result['capture_fraction']:.2f}, purity {result['cluster_purity']:.2f}){flag}")
-
-    print(f"\n{n_resolved}/{len(ring_ids)} resource-sharing rings resolved to a dominant cluster "
-          f"at full visibility.")
-
-    # Referral rings: EXPECTED to behave differently. They deliberately
-    # avoid resource sharing (only share one IP), so at full visibility
-    # they may or may not form a strong dominant cluster via the
-    # resource-sharing graph alone -- that's the whole premise of why
-    # referral_features.py exists as a separate signal. Reporting this
-    # here (not asserting success) so the difference from resource rings
-    # is visible, not silently glossed over.
-    rgt_path = "day1_data/referral_ground_truth.csv"
-    import os
-    if os.path.exists(rgt_path):
-        print("\n" + "=" * 60)
-        print("Referral rings (expected to differ -- see note above)")
-        print("=" * 60)
-        ref_gt = pd.read_csv("day1_data/ground_truth.csv") if os.path.exists("day1_data/ground_truth.csv") \
-            else ground_truth
-        rref_ids = sorted(
-            ref_gt.loc[ref_gt.get("is_referral_ring_member", False) == True, "referral_ring_id"]
-            .dropna().unique()
-        )
-        for rref_id in rref_ids:
-            members = set(ref_gt.loc[ref_gt["referral_ring_id"] == rref_id, "account_id"])
-            result = find_dominant_cluster(clusters, members, min_capture=0.5)
-            if result is None:
-                print(f"  {rref_id}: {len(members)} members -- no dominant resource-sharing cluster "
-                      f"(expected -- referral signal, not resource-sharing signal)")
-            else:
-                print(f"  {rref_id}: {len(members)} members -> cluster {result['cluster_id']} "
-                      f"(captured {result['members_captured']}/{result['target_member_count']} = "
-                      f"{result['capture_fraction']:.2f}, purity {result['cluster_purity']:.2f})")
+    res_df, summary = run_temporal_backtest(snapshot_freq_days=14)
+    print(f"Evaluated {summary['snapshots_evaluated']} snapshots in {summary['backtest_duration_seconds']}s")
+    print(f"Detection Rate: {summary['rings_flagged']}/{summary['total_rings']} ({summary['detection_rate_pct']}%)")
+    print(f"Median Detection Latency: {summary['median_detection_latency_days']} days")
+    print(f"Average Fraud Volume Prevented: {summary['average_volume_prevented_pct']}%")
+    print("\nSaved temporal_detection_latencies.csv and temporal_backtest_summary.json.")

@@ -97,7 +97,51 @@ def render_matplotlib_shap_chart(shap_values, feature_names, width=6.8, height=2
     buf = io.BytesIO()
     plt.savefig(buf, format="png", facecolor=fig.get_facecolor(), edgecolor="none", bbox_inches="tight")
     plt.close(fig)
+def render_matplotlib_temporal_latency_chart(temporal_info: dict, members: list, orders: pd.DataFrame) -> io.BytesIO:
+    """
+    Renders high-resolution Matplotlib counterfactual fraud protection horizon chart.
+    Visualizes the detection milestone, incurred fraud zone, and protected order volume.
+    """
+    fig, ax = plt.subplots(figsize=(7.0, 2.5), dpi=160)
+    fig.patch.set_facecolor("#ffffff")
+    ax.set_facecolor("#f8fafc")
+
+    r_orders = orders[orders["account_id"].isin(members)].copy() if orders is not None else pd.DataFrame()
+    ring_id = temporal_info.get("ring_id", "Ring")
+    latency_days = int(temporal_info.get("detection_latency_days", 0))
+    flag_str = temporal_info.get("first_flagged_date")
+
+    if r_orders.empty or not flag_str:
+        ax.text(0.5, 0.5, f"No chronological order activity for {ring_id}", ha="center", va="center", color="#64748b", fontsize=9)
+    else:
+        r_orders["timestamp"] = pd.to_datetime(r_orders["timestamp"])
+        r_orders = r_orders.sort_values("timestamp")
+        r_orders["cum_amount"] = r_orders["amount"].cumsum()
+        flag_dt = pd.to_datetime(flag_str)
+
+        ax.plot(r_orders["timestamp"], r_orders["cum_amount"], color="#2563eb", lw=2.0, label="Cumulative Fraud Volume")
+        ax.axvline(flag_dt, color="#ef4444", linestyle="--", lw=1.8, label=f"Sentinel Flag Date ({flag_str})")
+
+        pre = r_orders[r_orders["timestamp"] <= flag_dt]
+        post = r_orders[r_orders["timestamp"] > flag_dt]
+        pre_amt = pre["amount"].sum()
+        post_amt = post["amount"].sum()
+        pct = 100.0 * post_amt / (pre_amt + post_amt) if (pre_amt + post_amt) > 0 else 0.0
+
+        ax.fill_between(r_orders["timestamp"], 0, r_orders["cum_amount"], where=(r_orders["timestamp"] <= flag_dt), color="#fecaca", alpha=0.55, label=f"Incurred (Rs. {pre_amt:,.0f})")
+        ax.fill_between(r_orders["timestamp"], 0, r_orders["cum_amount"], where=(r_orders["timestamp"] >= flag_dt), color="#bbf7d0", alpha=0.55, label=f"Protected (Rs. {post_amt:,.0f} | {pct:.1f}%)")
+
+        ax.set_title(f"Counterfactual Protection Horizon — {ring_id} (Detection Latency: {latency_days} days)", fontsize=9.5, fontweight="bold", pad=6, color="#0f172a")
+        ax.set_ylabel("Cumulative Volume (Rs)", fontsize=8, color="#334155")
+        ax.tick_params(labelsize=7, colors="#475569")
+        ax.grid(True, linestyle=":", alpha=0.5)
+        ax.legend(fontsize=7, loc="upper left", framealpha=0.92)
+
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", bbox_inches="tight")
     buf.seek(0)
+    plt.close(fig)
     return buf
 
 
@@ -113,6 +157,7 @@ def generate_cluster_pdf_report(
     referrals=None,
     impact=None,
     active_threshold=0.45,
+    temporal_info=None,
 ):
     """
     Generates multi-page ReportLab PDF bytes.
@@ -221,7 +266,37 @@ def generate_cluster_pdf_report(
         ])
     )
     elements.append(t_kpi)
-    elements.append(Spacer(1, 10))
+    elements.append(Spacer(1, 8))
+
+    # Point-in-Time Temporal Latency (if available)
+    if temporal_info:
+        elements.append(Paragraph("Point-in-Time Temporal Latency & Defense Lag", h2_style))
+        temp_data = [
+            [
+                Paragraph(f"<b>RING IDENTITY</b><br/><font size=10 color='#0f172a'>{temporal_info.get('ring_id', 'N/A')}</font>", body_style),
+                Paragraph(f"<b>DETECTION LATENCY</b><br/><font size=11 color='#3b82f6'><b>{temporal_info.get('detection_latency_days', 0)} days</b></font>", body_style),
+                Paragraph(f"<b>FORMATION DATE</b><br/><font size=10 color='#0f172a'>{temporal_info.get('formation_date', 'N/A')}</font>", body_style),
+                Paragraph(f"<b>VOLUME PREVENTED</b><br/><font size=11 color='#10b981'><b>{temporal_info.get('volume_prevented_pct', 0.0):.1f}%</b></font>", body_style),
+            ]
+        ]
+        t_temp = Table(temp_data, colWidths=[1.75 * inch, 1.75 * inch, 1.75 * inch, 1.75 * inch])
+        t_temp.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f1f5f9")),
+                ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#cbd5e1")),
+                ("INNERGRID", (0, 0), (-1, -1), 1, colors.HexColor("#e2e8f0")),
+                ("PADDING", (0, 0), (-1, -1), 6),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ])
+        )
+        elements.append(t_temp)
+        elements.append(Spacer(1, 6))
+
+        latency_chart_buf = render_matplotlib_temporal_latency_chart(temporal_info, members, orders)
+        img_latency = Image(latency_chart_buf, width=7.0 * inch, height=2.4 * inch)
+        elements.append(img_latency)
+        elements.append(Spacer(1, 10))
 
     # Section 1: Graph Topology
     elements.append(Paragraph("1. Network Topology Graph Visualization", h2_style))
