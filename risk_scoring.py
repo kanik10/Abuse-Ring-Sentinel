@@ -25,6 +25,7 @@ from sklearn.preprocessing import StandardScaler
 
 from graph_builder import build_account_graph
 from account_scoring import score_all_flagged_accounts
+from audit_chain import build_chain, write_chain
 from threshold_config import CHOSEN_THRESHOLD  # reads pooled_threshold_selection_summary.json;
                                                # run pooled_threshold_selection.py to update.
 
@@ -169,9 +170,8 @@ def main():
         print(json.dumps(o.to_json_dict(), indent=2))
         print()
 
-    with open("audit_log.jsonl", "w", encoding="utf-8") as f:
-        for o in outputs:
-            f.write(json.dumps(o.to_json_dict()) + "\n")
+    chain = build_chain([o.to_json_dict() for o in outputs])
+    write_chain(chain, "audit_log.jsonl")
 
     print(f"Saved final_model.joblib and audit_log.jsonl ({len(outputs)} flagged clusters)")
 

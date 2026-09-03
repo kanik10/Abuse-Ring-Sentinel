@@ -235,10 +235,16 @@ python naive_baseline.py
 ```
 *The naive baseline tops out around F1 ≈ 0.88 (precision ~1.0, recall ~79%) — the Champion model's 1.000/1.000 reflects what the graph and referral features add over row-level heuristics.*
 
-### 7. Build the Offline Dashboard (optional)
-`build_dashboard.py` reads `audit_log.jsonl` (written by `risk_scoring.py`) and generates a self-contained `dashboard.html` that opens via `file://` with no server — useful for reviewers who can't run Streamlit:
+### 7. Build the Offline Dashboard & Verify Audit Log (optional)
+`risk_scoring.py` writes a byte-reproducible, hash-chained `audit_log.jsonl` (with canonical JSON serialization and SHA-256 cryptographic linkage).
+You can verify the cryptographic chain integrity with `verify_audit_log.py`:
 ```bash
 python risk_scoring.py
+python verify_audit_log.py
+```
+
+`build_dashboard.py` reads `audit_log.jsonl` (automatically unwrapping the hash-chain wrapper) and generates a self-contained `dashboard.html` that opens via `file://` with no server — useful for reviewers who can't run Streamlit:
+```bash
 python build_dashboard.py
 ```
 

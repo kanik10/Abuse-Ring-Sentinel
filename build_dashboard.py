@@ -21,7 +21,9 @@ def load_audit_rows() -> list[dict]:
         for line in f:
             line = line.strip()
             if line:
-                rows.append(json.loads(line))
+                entry = json.loads(line)
+                # Unwrap hash-chain payload wrapper if present
+                rows.append(entry.get("payload", entry))
     return rows
 
 

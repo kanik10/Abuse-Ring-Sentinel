@@ -1,7 +1,7 @@
 {
   "snapshots_evaluated": 101,
   "snapshot_frequency_days": 7,
-  "backtest_duration_seconds": 103.7,
+  "backtest_duration_seconds": 107.8,
   "total_rings": 28,
   "rings_flagged": 28,
   "detection_rate_pct": 100.0,
