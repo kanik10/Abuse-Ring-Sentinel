@@ -405,44 +405,49 @@ st.markdown(
 
 
 
+BASE_DIR = Path(__file__).resolve().parent
+
+
 @st.cache_resource
 def load_model():
-    return joblib.load("final_model.joblib")
+    model_path = BASE_DIR / "final_model.joblib"
+    return joblib.load(model_path)
 
 
 @st.cache_data
 def load_bundled_demo_data():
-    d = "day1_data"
-    from pathlib import Path
+    d = BASE_DIR / "day1_data" if (BASE_DIR / "day1_data").exists() else BASE_DIR
+    ref_path = d / "referrals.csv"
     referrals = (
-        pd.read_csv(f"{d}/referrals.csv")
-        if Path(f"{d}/referrals.csv").exists()
+        pd.read_csv(ref_path)
+        if ref_path.exists()
         else pd.DataFrame(columns=["referrer_id", "referred_id", "referral_date", "bonus_amount"])
     )
+    ground_truth = pd.read_csv(d / "ground_truth.csv")
+    if "is_referral_ring_member" in ground_truth.columns:
+        # Unify ring membership so referral-chain abuse ring members are recognized as true ring members
+        ground_truth["is_ring_member"] = (
+            (ground_truth["is_ring_member"] == True) | (ground_truth["is_referral_ring_member"] == True)
+        )
     return (
-        pd.read_csv(f"{d}/accounts.csv"),
-        pd.read_csv(f"{d}/resolved_account_device.csv"),
-        pd.read_csv(f"{d}/resolved_account_payment.csv"),
-        pd.read_csv(f"{d}/resolved_account_address.csv"),
-        pd.read_csv(f"{d}/resolved_account_ip.csv"),
-        pd.read_csv(f"{d}/orders.csv"),
-        pd.read_csv(f"{d}/ground_truth.csv"),
+        pd.read_csv(d / "accounts.csv"),
+        pd.read_csv(d / "resolved_account_device.csv"),
+        pd.read_csv(d / "resolved_account_payment.csv"),
+        pd.read_csv(d / "resolved_account_address.csv"),
+        pd.read_csv(d / "resolved_account_ip.csv"),
+        pd.read_csv(d / "orders.csv"),
+        ground_truth,
         referrals,
     )
 
 
 @st.cache_data
 def load_temporal_backtest_data():
-    lat_path = Path("temporal_detection_latencies.csv")
-    sum_path = Path("temporal_backtest_summary.json")
+    lat_path = BASE_DIR / "temporal_detection_latencies.csv"
+    sum_path = BASE_DIR / "temporal_backtest_summary.json"
     lat_df = pd.read_csv(lat_path) if lat_path.exists() else None
     sum_dict = json.loads(sum_path.read_text(encoding="utf-8")) if sum_path.exists() else None
     return lat_df, sum_dict
-
-
-def validate_upload(df: pd.DataFrame, filename: str) -> list:
-    missing = REQUIRED_COLUMNS[filename] - set(df.columns)
-    return list(missing)
 
 
 def format_rs(value: float) -> str:
@@ -1007,11 +1012,24 @@ def render_cluster_graph_html(subgraph, accounts, orders, pair_resources,
 
 
 
-def build_single_account_ego_graph(target_account_id, G, account_device, account_payment,
-                                   account_address, account_ip, radius=1, view_mode="Account Projection"):
+def build_single_account_ego_graph(
+    target_account_id,
+    G,
+    account_device,
+    account_payment,
+    account_address,
+    account_ip,
+    radius=1,
+    view_mode="Account Projection",
+    selected_resource_types=None,
+    min_edge_weight=0.0,
+    hide_isolated=True,
+    pair_resources=None,
+):
     """
     Builds ego network around target_account_id.
-    In 'Account Projection' mode: Extracts k-hop NetworkX subgraph around target_account_id.
+    In 'Account Projection' mode: Extracts k-hop NetworkX subgraph around target_account_id,
+    filtered by selected_resource_types and min_edge_weight.
     In 'Entity Bipartite Tree' mode: Constructs bipartite graph of target_account_id, its raw
     resources (devices, payments, addresses, IPs), and other accounts sharing those resources.
     """
@@ -1019,62 +1037,93 @@ def build_single_account_ego_graph(target_account_id, G, account_device, account
         B = nx.Graph()
         B.add_node(target_account_id, node_type="target", label=str(target_account_id))
         
-        # Get target resources
-        devs = account_device[account_device.account_id == target_account_id]["device_id"].tolist()
-        pmts = account_payment[account_payment.account_id == target_account_id]["payment_id"].tolist()
-        addrs = account_address[account_address.account_id == target_account_id]["address_id"].tolist()
-        ips = account_ip[account_ip.account_id == target_account_id]["ip_id"].tolist()
-        
-        # Add resource nodes and edges to target
-        for r_id in devs[:10]:
-            r_node = f"device:{r_id}"
-            B.add_node(r_node, node_type="device", label=f"Dev:{str(r_id)[-6:]}")
-            B.add_edge(target_account_id, r_node)
-            sharing_accts = account_device[account_device.device_id == r_id]["account_id"].tolist()
-            for neighbor_acct in sharing_accts[:10]:
-                if neighbor_acct != target_account_id:
-                    B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
-                    B.add_edge(r_node, neighbor_acct)
+        sel_types = set(selected_resource_types) if selected_resource_types else {"device", "payment", "address", "ip"}
+
+        # Add resource nodes and edges to target with edge attributes
+        if "device" in sel_types:
+            devs = account_device[account_device.account_id == target_account_id]["device_id"].tolist()
+            for r_id in devs[:10]:
+                r_node = f"device:{r_id}"
+                B.add_node(r_node, node_type="device", label=f"Dev:{str(r_id)[-6:]}")
+                B.add_edge(target_account_id, r_node, edge_type="device", weight=1.0)
+                sharing_accts = account_device[account_device.device_id == r_id]["account_id"].tolist()
+                for neighbor_acct in sharing_accts[:10]:
+                    if neighbor_acct != target_account_id:
+                        B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
+                        B.add_edge(r_node, neighbor_acct, edge_type="device", weight=1.0)
                     
-        for r_id in pmts[:10]:
-            r_node = f"payment:{r_id}"
-            B.add_node(r_node, node_type="payment", label=f"Pay:{str(r_id)[-6:]}")
-            B.add_edge(target_account_id, r_node)
-            sharing_accts = account_payment[account_payment.payment_id == r_id]["account_id"].tolist()
-            for neighbor_acct in sharing_accts[:10]:
-                if neighbor_acct != target_account_id:
-                    B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
-                    B.add_edge(r_node, neighbor_acct)
+        if "payment" in sel_types:
+            pmts = account_payment[account_payment.account_id == target_account_id]["payment_id"].tolist()
+            for r_id in pmts[:10]:
+                r_node = f"payment:{r_id}"
+                B.add_node(r_node, node_type="payment", label=f"Pay:{str(r_id)[-6:]}")
+                B.add_edge(target_account_id, r_node, edge_type="payment", weight=1.0)
+                sharing_accts = account_payment[account_payment.payment_id == r_id]["account_id"].tolist()
+                for neighbor_acct in sharing_accts[:10]:
+                    if neighbor_acct != target_account_id:
+                        B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
+                        B.add_edge(r_node, neighbor_acct, edge_type="payment", weight=1.0)
 
-        for r_id in addrs[:10]:
-            r_node = f"address:{r_id}"
-            B.add_node(r_node, node_type="address", label=f"Addr:{str(r_id)[-6:]}")
-            B.add_edge(target_account_id, r_node)
-            sharing_accts = account_address[account_address.address_id == r_id]["account_id"].tolist()
-            for neighbor_acct in sharing_accts[:10]:
-                if neighbor_acct != target_account_id:
-                    B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
-                    B.add_edge(r_node, neighbor_acct)
+        if "address" in sel_types:
+            addrs = account_address[account_address.account_id == target_account_id]["address_id"].tolist()
+            for r_id in addrs[:10]:
+                r_node = f"address:{r_id}"
+                B.add_node(r_node, node_type="address", label=f"Addr:{str(r_id)[-6:]}")
+                B.add_edge(target_account_id, r_node, edge_type="address", weight=1.0)
+                sharing_accts = account_address[account_address.address_id == r_id]["account_id"].tolist()
+                for neighbor_acct in sharing_accts[:10]:
+                    if neighbor_acct != target_account_id:
+                        B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
+                        B.add_edge(r_node, neighbor_acct, edge_type="address", weight=1.0)
 
-        for r_id in ips[:10]:
-            r_node = f"ip:{r_id}"
-            B.add_node(r_node, node_type="ip", label=f"IP:{str(r_id)[-6:]}")
-            B.add_edge(target_account_id, r_node)
-            sharing_accts = account_ip[account_ip.ip_id == r_id]["account_id"].tolist()
-            for neighbor_acct in sharing_accts[:10]:
-                if neighbor_acct != target_account_id:
-                    B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
-                    B.add_edge(r_node, neighbor_acct)
+        if "ip" in sel_types:
+            ips = account_ip[account_ip.account_id == target_account_id]["ip_id"].tolist()
+            for r_id in ips[:10]:
+                r_node = f"ip:{r_id}"
+                B.add_node(r_node, node_type="ip", label=f"IP:{str(r_id)[-6:]}")
+                B.add_edge(target_account_id, r_node, edge_type="ip", weight=1.0)
+                sharing_accts = account_ip[account_ip.ip_id == r_id]["account_id"].tolist()
+                for neighbor_acct in sharing_accts[:10]:
+                    if neighbor_acct != target_account_id:
+                        B.add_node(neighbor_acct, node_type="account", label=str(neighbor_acct))
+                        B.add_edge(r_node, neighbor_acct, edge_type="ip", weight=1.0)
+
+        if hide_isolated:
+            isolates = [n for n in B.nodes() if B.degree(n) == 0 and n != target_account_id]
+            B.remove_nodes_from(isolates)
 
         return B
 
     # Account Projection mode
     if target_account_id in G:
         sub = nx.ego_graph(G, target_account_id, radius=radius)
+        sel_types = set(selected_resource_types) if selected_resource_types else {"device", "payment", "address", "ip"}
+        
+        filtered = nx.Graph()
+        filtered.add_node(target_account_id)
+
+        for u, v, data in sub.edges(data=True):
+            w = float(data.get("weight", 1.0))
+            if w < min_edge_weight:
+                continue
+            
+            # Filter by selected resource types
+            if pair_resources is not None:
+                key = (u, v) if u < v else (v, u)
+                res = pair_resources.get(key, [])
+                rtypes = {r.split(":", 1)[0] for r in res if ":" in r}
+                if rtypes and not (rtypes & sel_types):
+                    continue
+            filtered.add_edge(u, v, **data)
+
+        if not hide_isolated:
+            filtered.add_nodes_from(sub.nodes(data=True))
+
+        return filtered
     else:
         sub = nx.Graph()
         sub.add_node(target_account_id)
-    return sub
+        return sub
 
 
 def render_single_account_graph_html(
@@ -1083,6 +1132,12 @@ def render_single_account_graph_html(
     accounts,
     orders,
     view_mode="Account Projection",
+    edge_label_mode="Resource types",
+    pair_resources=None,
+    account_device=None,
+    account_payment=None,
+    account_address=None,
+    account_ip=None,
     width=1000,
     height=520,
 ):
@@ -1133,16 +1188,71 @@ def render_single_account_graph_html(
             "ntype": ntype,
         })
 
+    def get_resources_for_edge(u, v):
+        if pair_resources is not None:
+            key = (u, v) if u < v else (v, u)
+            if key in pair_resources:
+                return pair_resources[key]
+        if account_device is not None:
+            shared = []
+            for rtype, df, col in [
+                ("device", account_device, "device_id"),
+                ("payment", account_payment, "payment_id"),
+                ("address", account_address, "address_id"),
+                ("ip", account_ip, "ip_id"),
+            ]:
+                if df is not None and not df.empty:
+                    u_res = set(df.loc[df.account_id == u, col])
+                    v_res = set(df.loc[df.account_id == v, col])
+                    for r_id in u_res & v_res:
+                        shared.append(f"{rtype}:{r_id}")
+            if pair_resources is not None:
+                key = (u, v) if u < v else (v, u)
+                pair_resources[key] = shared
+            return shared
+        return []
+
+    def compute_edge_label(a, b, data, weight, resources):
+        if edge_label_mode == "None":
+            return ""
+        if view_mode == "Entity Bipartite Tree":
+            etype = data.get("edge_type", "")
+            if not etype:
+                for cand in [str(a), str(b)]:
+                    if cand.startswith("device:"): return "device"
+                    if cand.startswith("payment:"): return "payment"
+                    if cand.startswith("address:"): return "address"
+                    if cand.startswith("ip:"): return "ip"
+            return etype or "linked"
+        # Account Projection mode
+        if edge_label_mode == "Weight":
+            return f"{weight:.2f}"
+        if edge_label_mode == "Shared count":
+            return f"{len(resources)} shared" if resources else f"{weight:.1f}"
+        # Default: "Resource types"
+        if resources:
+            rtypes = sorted({r.split(":", 1)[0] for r in resources if ":" in r})
+            return "+".join(rtypes) if rtypes else f"{weight:.1f}"
+        return f"{weight:.1f}" if weight > 1.0 else ""
+
     links = []
     for a, b, data in subgraph.edges(data=True):
         w = float(data.get("weight", 1.0))
         sw = max(1.5, min(6.0, 1.2 * w))
-        title = f"{a} <-> {b}"
+        resources = get_resources_for_edge(a, b) if view_mode != "Entity Bipartite Tree" else []
+        lbl = compute_edge_label(a, b, data, w, resources)
+        if view_mode == "Entity Bipartite Tree":
+            etype = data.get("edge_type", "entity")
+            title = f"{a} <-> {b} ({etype})"
+        else:
+            res_str = ", ".join(resources[:6]) if resources else "shared resource"
+            title = f"{a} <-> {b}\nweight={w:.2f}\nshared: {res_str}"
         links.append({
             "source": str(a),
             "target": str(b),
             "weight": w,
             "stroke_width": sw,
+            "label": lbl,
             "title": title,
         })
 
@@ -1259,6 +1369,23 @@ def render_single_account_graph_html(
         stroke-linejoin: round;
         stroke-width: 3.5px;
       }
+      .edge-txt {
+        fill: #fbbf24;
+        font-size: 10px;
+        font-weight: 600;
+        text-anchor: middle;
+        pointer-events: none;
+        paint-order: stroke;
+        stroke: #07090e;
+        stroke-linejoin: round;
+        stroke-width: 3.5px;
+        opacity: 0.65;
+        transition: opacity 0.2s, fill 0.2s;
+      }
+      .edge-txt.highlighted {
+        opacity: 1.0 !important;
+        fill: #ffffff !important;
+      }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
     <script>
@@ -1328,6 +1455,12 @@ def render_single_account_graph_html(
 
         link.append("title").text(d => d.title);
 
+        const linkText = linkGroup.selectAll("text")
+          .data(links)
+          .enter().append("text")
+          .attr("class", "edge-txt")
+          .text(d => d.label);
+
         const nodeGroup = container.append("g").attr("class", "nodes-group");
         const node = nodeGroup.selectAll("g")
           .data(nodes)
@@ -1390,10 +1523,21 @@ def render_single_account_graph_html(
               const tgtId = typeof l.target === "object" ? l.target.id : l.target;
               return (srcId === selectedNodeId || tgtId === selectedNodeId);
             });
+
+            linkText.style("opacity", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return (srcId === selectedNodeId || tgtId === selectedNodeId) ? 1.0 : 0.04;
+            }).classed("highlighted", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return (srcId === selectedNodeId || tgtId === selectedNodeId);
+            });
           } else {
             node.style("opacity", 1.0);
             node.selectAll(".node-shape").classed("selected-node", false);
             link.style("opacity", 0.6).classed("highlighted", false);
+            linkText.style("opacity", 0.65).classed("highlighted", false);
           }
         }
 
@@ -1417,10 +1561,16 @@ def render_single_account_graph_html(
               const tgtId = typeof l.target === "object" ? l.target.id : l.target;
               return srcId === d.id || tgtId === d.id;
             });
+            linkText.classed("highlighted", l => {
+              const srcId = typeof l.source === "object" ? l.source.id : l.source;
+              const tgtId = typeof l.target === "object" ? l.target.id : l.target;
+              return srcId === d.id || tgtId === d.id;
+            });
           }
         }).on("mouseout", () => {
           if (!selectedNodeId) {
             link.classed("highlighted", false);
+            linkText.classed("highlighted", false);
           }
         });
 
@@ -1430,6 +1580,10 @@ def render_single_account_graph_html(
             .attr("y1", d => d.source.y)
             .attr("x2", d => d.target.x)
             .attr("y2", d => d.target.y);
+
+          linkText
+            .attr("x", d => (d.source.x + d.target.x) / 2)
+            .attr("y", d => (d.source.y + d.target.y) / 2);
 
           node.attr("transform", d => `translate(${d.x}, ${d.y})`);
         });
@@ -1506,10 +1660,16 @@ def compute_business_impact(clusters_df, features, flagged_cluster_ids, orders,
     members["is_flagged"] = members["cluster_id"].isin(flagged_cluster_ids)
 
     if ground_truth is not None:
+        gt_cols = ["account_id", "is_ring_member"]
+        if "is_referral_ring_member" in ground_truth.columns:
+            gt_cols.append("is_referral_ring_member")
         members = members.merge(
-            ground_truth[["account_id", "is_ring_member"]], on="account_id", how="left"
+            ground_truth[gt_cols], on="account_id", how="left"
         )
-        members["is_ring_member"] = members["is_ring_member"].fillna(False).astype(bool)
+        is_true_ring = (members["is_ring_member"] == True)
+        if "is_referral_ring_member" in members.columns:
+            is_true_ring = is_true_ring | (members["is_referral_ring_member"] == True)
+        members["is_ring_member"] = is_true_ring
         protected = members.loc[members.is_flagged & members.is_ring_member, "order_value"].sum()
         missed = members.loc[(~members.is_flagged) & members.is_ring_member, "order_value"].sum()
         fp_accounts = int((members.is_flagged & (~members.is_ring_member)).sum())
@@ -1706,7 +1866,10 @@ with col_left:
     with st.container(border=True):
         if ground_truth is not None:
             merged = clusters_df.merge(ground_truth, on="account_id", how="left")
-            ring_clusters = set(merged.loc[merged.is_ring_member == True, "cluster_id"])
+            is_ring = (merged.is_ring_member == True)
+            if "is_referral_ring_member" in merged.columns:
+                is_ring = is_ring | (merged.is_referral_ring_member == True)
+            ring_clusters = set(merged.loc[is_ring, "cluster_id"])
             tp = len(ring_clusters & flagged_ids)
             fp = len(flagged_ids - ring_clusters)
             fn = len(ring_clusters - flagged_ids)
@@ -1732,6 +1895,8 @@ with col_right:
 
 
 
+
+temp_lat_df, temp_summary = load_temporal_backtest_data()
 
 with st.container(border=True):
     tcol1, tcol2 = st.columns([3.5, 1.2], vertical_alignment="center")
@@ -1808,8 +1973,6 @@ with st.container(border=True):
             width="stretch",
             hide_index=True,
         )
-
-        temp_lat_df, temp_summary = load_temporal_backtest_data()
 
         st.markdown("<br>", unsafe_allow_html=True)
         selected = st.selectbox(
@@ -1973,15 +2136,62 @@ with st.container(border=True):
 
     with acct_graph_tab:
         with st.container(border=True):
-            st.markdown("##### Target Account Ego-Graph Controls")
-            acol1, acol2, acol3 = st.columns([1.5, 1.0, 1.2])
+            st.markdown("##### Target Account Ego-Graph Controls & Filters")
+            acol1, acol2, acol3 = st.columns([1.4, 0.9, 1.4], vertical_alignment="bottom")
             target_acct_id = acol1.selectbox(
                 "Target Account ID",
                 options=members,
-                help="Select an account from this cluster to explore its ego-network radius."
             )
-            ego_radius = acol2.slider("Hop Radius", 1, 3, 1, help="1-Hop: Direct resource sharers. 2-Hop: Extended network.")
-            ego_view_mode = acol3.radio("Graph Mode", ["Account Projection", "Entity Bipartite Tree"], horizontal=True)
+            ego_radius = acol2.slider("Hop Radius", 1, 3, 1)
+            ego_view_mode = acol3.radio(
+                "Graph Mode",
+                ["Account Projection", "Entity Bipartite Tree"],
+                horizontal=True,
+            )
+
+            st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
+
+            fcol1, fcol2, fcol3, fcol4 = st.columns([2.2, 1.2, 1.2, 0.9], vertical_alignment="bottom")
+            ego_resource_types = fcol1.multiselect(
+                "Resource Types",
+                ["device", "payment", "address", "ip"],
+                default=["device", "payment", "address", "ip"],
+            )
+            
+            if ego_view_mode == "Entity Bipartite Tree":
+                ego_edge_label_options = ["Entity type", "None"]
+            else:
+                ego_edge_label_options = ["Resource types", "Shared count", "Weight", "None"]
+
+            ego_edge_label_mode = fcol2.selectbox(
+                "Edge Labels",
+                ego_edge_label_options,
+            )
+
+            if ego_view_mode == "Account Projection" and target_acct_id in G:
+                temp_sub = nx.ego_graph(G, target_acct_id, radius=ego_radius)
+                max_ego_w = max((float(d.get("weight", 1.0)) for _, _, d in temp_sub.edges(data=True)), default=1.0)
+                ego_min_weight = fcol3.slider(
+                    "Min Edge Weight",
+                    0.0,
+                    float(max_ego_w),
+                    0.0,
+                    0.01,
+                )
+            else:
+                ego_min_weight = 0.0
+                fcol3.slider(
+                    "Min Edge Weight",
+                    0.0,
+                    1.0,
+                    0.0,
+                    disabled=True,
+                )
+
+            ego_hide_isolated = fcol4.checkbox(
+                "Hide Isolated",
+                value=True,
+            )
 
         # Single Account Summary Card
         acct_orders = orders[orders.account_id == target_acct_id]
@@ -2004,7 +2214,11 @@ with st.container(border=True):
 
         ego_subgraph = build_single_account_ego_graph(
             target_acct_id, G, account_device, account_payment,
-            account_address, account_ip, radius=ego_radius, view_mode=ego_view_mode
+            account_address, account_ip, radius=ego_radius, view_mode=ego_view_mode,
+            selected_resource_types=ego_resource_types,
+            min_edge_weight=ego_min_weight,
+            hide_isolated=ego_hide_isolated,
+            pair_resources=pair_resources,
         )
 
         st.markdown(
@@ -2012,7 +2226,7 @@ with st.container(border=True):
             <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 10px; padding: 10px 16px; margin-bottom: 12px; font-family: Inter, sans-serif; font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;">
               <span style="font-weight: 600; color: #fbbf24; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.5px;">EGO GRAPH LEGEND & GUIDE:</span>
               <span><span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#f59e0b; margin-right:6px; vertical-align:middle;"></span> <strong style="color:#f8fafc;">Golden Amber Node</strong> = Target Account in Focus</span>
-              <span><span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#f43f5e; margin-right:6px; vertical-align:middle;"></span> <strong style="color:#f8fafc;">Red / Blue Nodes</strong> = Neighbor Accounts</span>
+              <span><span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#3b82f6; margin-right:6px; vertical-align:middle;"></span> <strong style="color:#f8fafc;">Blue Nodes</strong> = Neighbor Accounts</span>
               <span><strong style="color:#fbbf24;">Entity Shapes</strong> = Devices (Cyan Square), Payments (Purple Diamond), IPs (Green Circle), Addresses (Orange Circle)</span>
             </div>
             """,
@@ -2021,7 +2235,17 @@ with st.container(border=True):
 
         components.html(
             render_single_account_graph_html(
-                ego_subgraph, target_acct_id, accounts, orders, view_mode=ego_view_mode
+                ego_subgraph,
+                target_acct_id,
+                accounts,
+                orders,
+                view_mode=ego_view_mode,
+                edge_label_mode=ego_edge_label_mode,
+                pair_resources=pair_resources,
+                account_device=account_device,
+                account_payment=account_payment,
+                account_address=account_address,
+                account_ip=account_ip,
             ),
             height=600,
             scrolling=False,
@@ -2061,10 +2285,13 @@ with st.container(border=True):
             xcol2.metric("Explained cluster risk", f"{shap_meta['reconstructed_risk']:.3f}")
             shap_chart_df = shap_table.copy()
             shap_chart_df["feature_display"] = shap_chart_df["feature"].map(FEATURE_LABELS).fillna(shap_chart_df["feature"])
-            max_val = float(shap_chart_df["shap_log_odds"].max()) if not shap_chart_df.empty else 1.0
+            max_val = float(shap_chart_df["shap_log_odds"].max()) if not shap_chart_df.empty else 0.5
             min_val = float(shap_chart_df["shap_log_odds"].min()) if not shap_chart_df.empty else -0.5
-            domain_min = min(-0.1, min_val * 1.35) if min_val < 0 else -0.05
-            domain_max = max(0.1, max_val * 1.35) if max_val > 0 else 0.05
+            span = max(0.5, max_val - min_val)
+            buffer_neg = max(0.35, span * 0.35)
+            buffer_pos = max(0.35, span * 0.35)
+            domain_min = min(-0.15, min_val - buffer_neg)
+            domain_max = max(0.15, max_val + buffer_pos)
 
             bars = alt.Chart(shap_chart_df).mark_bar(
                 cornerRadiusTopRight=4,
@@ -2094,8 +2321,8 @@ with st.container(border=True):
                         labelFont='Inter',
                         labelFontSize=12,
                         labelColor='#f8fafc',
-                        labelPadding=14,
-                        labelLimit=400
+                        labelPadding=18,
+                        labelLimit=450
                     )
                 ),
                 color=alt.condition(
@@ -2408,74 +2635,74 @@ with st.container(border=True):
         else:
             st.info(f"Cluster #{selected} is either a coincidental group or has not been tagged as a primary ground-truth ring in the temporal backtest.")
 
-    # =========================================================================
-    # PLATFORM-WIDE TEMPORAL BACKTEST BENCHMARK (MACRO VIEW BELOW CLUSTERS)
-    # =========================================================================
-    if temp_lat_df is not None and not temp_lat_df.empty and temp_summary:
-        st.markdown("<br>", unsafe_allow_html=True)
-        with st.container(border=True):
-            st.markdown(f"### Platform-Wide Zero-Lookahead Backtest Benchmark ({temp_summary.get('snapshots_evaluated', 101)} Historical Snapshots)")
-            st.caption(
-                "**Macro Zero-Lookahead Evaluation across all 28 fraud rings:** Input tables are strictly sliced by timestamp &le; T before constructing the graph, "
-                "running Louvain community detection, and scoring with the champion 7-feature model. "
-                "Quantifies the platform-wide detection latency and counterfactual fraud volume protected."
-            )
-            tkpi1, tkpi2, tkpi3, tkpi4 = st.columns(4)
-            tkpi1.metric("Median Detection Lag", f"{temp_summary['median_detection_latency_days']:.0f} days", help="Median time from earliest member creation to flag")
-            tkpi2.metric("Counterfactual Volume Protected", f"{temp_summary.get('counterfactual_protected_rate_pct', temp_summary.get('average_volume_prevented_pct', 91.85)):.1f}%", help="Share of fraudulent transaction volume prevented before execution")
-            tkpi3.metric("Rings Detected", f"{temp_summary['rings_flagged']}/{temp_summary['total_rings']} (100%)", help="Rings flagged point-in-time across all snapshots")
-            tkpi4.metric("Counterfactual Intercepted", f"Rs. {temp_summary['total_prevented_fraud_amount']:,.0f}", help="Total fraudulent transaction value intercepted before execution")
+# =========================================================================
+# PLATFORM-WIDE TEMPORAL BACKTEST BENCHMARK (MACRO VIEW OUTSIDE CLUSTERS BOX)
+# =========================================================================
+if temp_lat_df is not None and not temp_lat_df.empty and temp_summary:
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown(f"### Platform-Wide Zero-Lookahead Backtest Benchmark ({temp_summary.get('snapshots_evaluated', 101)} Historical Snapshots)")
+        st.caption(
+            "**Macro Zero-Lookahead Evaluation across all 28 fraud rings:** Input tables are strictly sliced by timestamp &le; T before constructing the graph, "
+            "running Louvain community detection, and scoring with the champion 7-feature model. "
+            "Quantifies the platform-wide detection latency and counterfactual fraud volume protected."
+        )
+        tkpi1, tkpi2, tkpi3, tkpi4 = st.columns(4)
+        tkpi1.metric("Median Detection Lag", f"{temp_summary['median_detection_latency_days']:.0f} days", help="Median time from earliest member creation to flag")
+        tkpi2.metric("Counterfactual Volume Protected", f"{temp_summary.get('counterfactual_protected_rate_pct', temp_summary.get('average_volume_prevented_pct', 91.85)):.1f}%", help="Share of fraudulent transaction volume prevented before execution")
+        tkpi3.metric("Rings Detected", f"{temp_summary['rings_flagged']}/{temp_summary['total_rings']} (100%)", help="Rings flagged point-in-time across all snapshots")
+        tkpi4.metric("Counterfactual Intercepted", f"Rs. {temp_summary['total_prevented_fraud_amount']:,.0f}", help="Total fraudulent transaction value intercepted before execution")
 
-            c_chart1, c_chart2 = st.columns(2)
-            with c_chart1:
-                st.markdown("###### Cumulative Fraud Ring Detection Curve")
-                lat_series = temp_lat_df["detection_latency_days"].dropna().values
-                max_days = int(np.ceil(lat_series.max()))
-                timeline_grid = list(range(0, max_days + 3, 2))
-                curve_df = pd.DataFrame({
-                    "Days Since Formation": timeline_grid,
-                    "Rings Flagged (%)": [(lat_series <= d).sum() * 100.0 / len(lat_series) for d in timeline_grid]
-                })
-                c_chart = alt.Chart(curve_df).mark_area(
-                    color="#3b82f6", opacity=0.35, line={"color": "#60a5fa", "width": 2.5}
-                ).encode(
-                    x=alt.X("Days Since Formation:Q", title="Detection Latency (Days)"),
-                    y=alt.Y("Rings Flagged (%):Q", title="Cumulative Flagged (%)", scale=alt.Scale(domain=[0, 105])),
-                    tooltip=["Days Since Formation:Q", "Rings Flagged (%):Q"]
-                ).properties(height=240)
-                st.altair_chart(c_chart, use_container_width=True)
-
-            with c_chart2:
-                st.markdown("###### Volume Prevented (%) vs Detection Latency")
-                scatter_chart = alt.Chart(temp_lat_df).mark_circle(size=75).encode(
-                    x=alt.X("detection_latency_days:Q", title="Detection Latency (Days)"),
-                    y=alt.Y("volume_prevented_pct:Q", title="Volume Prevented (%)", scale=alt.Scale(domain=[50, 105])),
-                    color=alt.Color("ring_type:N", scale=alt.Scale(domain=["resource_sharing", "referral_chain"], range=["#38bdf8", "#ec4899"]), title="Ring Type"),
-                    tooltip=["ring_id:N", "ring_type:N", "member_count:Q", "detection_latency_days:Q", "volume_prevented_pct:Q", "risk_score_at_flag:Q"]
-                ).properties(height=240)
-                st.altair_chart(scatter_chart, use_container_width=True)
-
-            st.markdown("###### Ring-by-Ring Point-in-Time Lifecycle Roster")
-            disp_temp = temp_lat_df[[
-                "ring_id", "ring_type", "member_count", "formation_date",
-                "first_flagged_date", "detection_latency_days", "volume_prevented_pct", "risk_score_at_flag"
-            ]].rename(columns={
-                "ring_id": "Ring ID",
-                "ring_type": "Ring Type",
-                "member_count": "Members",
-                "formation_date": "Formation Date",
-                "first_flagged_date": "First Flagged",
-                "detection_latency_days": "Latency (Days)",
-                "volume_prevented_pct": "Volume Prevented (%)",
-                "risk_score_at_flag": "Risk Score",
+        c_chart1, c_chart2 = st.columns(2)
+        with c_chart1:
+            st.markdown("###### Cumulative Fraud Ring Detection Curve")
+            lat_series = temp_lat_df["detection_latency_days"].dropna().values
+            max_days = int(np.ceil(lat_series.max()))
+            timeline_grid = list(range(0, max_days + 3, 2))
+            curve_df = pd.DataFrame({
+                "Days Since Formation": timeline_grid,
+                "Rings Flagged (%)": [(lat_series <= d).sum() * 100.0 / len(lat_series) for d in timeline_grid]
             })
-            st.dataframe(disp_temp, width="stretch", hide_index=True)
-            st.download_button(
-                "Download Temporal Backtest Latencies CSV",
-                temp_lat_df.to_csv(index=False),
-                file_name="temporal_detection_latencies.csv",
-                mime="text/csv",
-            )
+            c_chart = alt.Chart(curve_df).mark_area(
+                color="#3b82f6", opacity=0.35, line={"color": "#60a5fa", "width": 2.5}
+            ).encode(
+                x=alt.X("Days Since Formation:Q", title="Detection Latency (Days)"),
+                y=alt.Y("Rings Flagged (%):Q", title="Cumulative Flagged (%)", scale=alt.Scale(domain=[0, 105])),
+                tooltip=["Days Since Formation:Q", "Rings Flagged (%):Q"]
+            ).properties(height=240)
+            st.altair_chart(c_chart, use_container_width=True)
+
+        with c_chart2:
+            st.markdown("###### Volume Prevented (%) vs Detection Latency")
+            scatter_chart = alt.Chart(temp_lat_df).mark_circle(size=75).encode(
+                x=alt.X("detection_latency_days:Q", title="Detection Latency (Days)"),
+                y=alt.Y("volume_prevented_pct:Q", title="Volume Prevented (%)", scale=alt.Scale(domain=[50, 105])),
+                color=alt.Color("ring_type:N", scale=alt.Scale(domain=["resource_sharing", "referral_chain"], range=["#38bdf8", "#ec4899"]), title="Ring Type"),
+                tooltip=["ring_id:N", "ring_type:N", "member_count:Q", "detection_latency_days:Q", "volume_prevented_pct:Q", "risk_score_at_flag:Q"]
+            ).properties(height=240)
+            st.altair_chart(scatter_chart, use_container_width=True)
+
+        st.markdown("###### Ring-by-Ring Point-in-Time Lifecycle Roster")
+        disp_temp = temp_lat_df[[
+            "ring_id", "ring_type", "member_count", "formation_date",
+            "first_flagged_date", "detection_latency_days", "volume_prevented_pct", "risk_score_at_flag"
+        ]].rename(columns={
+            "ring_id": "Ring ID",
+            "ring_type": "Ring Type",
+            "member_count": "Members",
+            "formation_date": "Formation Date",
+            "first_flagged_date": "First Flagged",
+            "detection_latency_days": "Latency (Days)",
+            "volume_prevented_pct": "Volume Prevented (%)",
+            "risk_score_at_flag": "Risk Score",
+        })
+        st.dataframe(disp_temp, width="stretch", hide_index=True)
+        st.download_button(
+            "Download Temporal Backtest Latencies CSV",
+            temp_lat_df.to_csv(index=False),
+            file_name="temporal_detection_latencies.csv",
+            mime="text/csv",
+        )
 
 
 st.divider()

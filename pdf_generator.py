@@ -46,7 +46,7 @@ def render_matplotlib_cluster_graph(subgraph, pair_resources=None, width=6.8, he
     node_sizes = []
     for n in subgraph.nodes():
         deg = degrees.get(n, 0.0)
-        node_colors.append("#f43f5e" if deg >= med_deg and med_deg > 0 else "#3b82f6")
+        node_colors.append("#ec4899" if deg >= med_deg and med_deg > 0 else "#3b82f6")
         node_sizes.append(280 + 450 * (deg / max_deg if max_deg else 0))
 
     nx.draw_networkx_edges(subgraph, pos, ax=ax, edge_color="#334155", width=1.5, alpha=0.7)
@@ -79,7 +79,7 @@ def render_matplotlib_shap_chart(shap_values, feature_names, width=6.8, height=2
     ax.set_facecolor("#07090e")
 
     y_pos = np.arange(len(feature_names))
-    bar_colors = ["#f43f5e" if val >= 0 else "#06b6d4" for val in shap_values]
+    bar_colors = ["#ec4899" if val >= 0 else "#06b6d4" for val in shap_values]
 
     ax.barh(y_pos, shap_values, align="center", color=bar_colors, height=0.55, edgecolor="none")
     ax.set_yticks(y_pos)
@@ -176,7 +176,7 @@ def generate_cluster_pdf_report(
 
     c_primary = colors.HexColor("#0f172a")  # Slate Dark
     c_accent = colors.HexColor("#3b82f6")   # Blue
-    c_danger = colors.HexColor("#f43f5e")   # Red
+    c_danger = colors.HexColor("#ec4899")   # Pink
     c_text = colors.HexColor("#1e293b")
 
     title_style = ParagraphStyle(
@@ -249,7 +249,7 @@ def generate_cluster_pdf_report(
     kpi_data = [
         [
             Paragraph(f"<b>CLUSTER ID</b><br/><font size=13 color='#0f172a'>#{cluster_id}</font>", body_style),
-            Paragraph(f"<b>RISK SCORE</b><br/><font size=13 color='#f43f5e'><b>{risk_score:.3f}</b></font>", body_style),
+            Paragraph(f"<b>RISK SCORE</b><br/><font size=13 color='#ec4899'><b>{risk_score:.3f}</b></font>", body_style),
             Paragraph(f"<b>MEMBERS</b><br/><font size=13 color='#0f172a'>{len(members)} accounts</font>", body_style),
             Paragraph(f"<b>EXPOSURE</b><br/><font size=12 color='#0f172a'><b>Rs. {total_cluster_spend:,.0f}</b></font>", body_style),
         ]
@@ -328,7 +328,7 @@ def generate_cluster_pdf_report(
             creation = str(account_lookup.loc[acc, "creation_date"])[:10]
 
         tier = "HIGH RISK" if deg >= 1.5 else "MED RISK"
-        tier_color = "#f43f5e" if tier == "HIGH RISK" else "#3b82f6"
+        tier_color = "#ec4899" if tier == "HIGH RISK" else "#3b82f6"
 
         roster_rows.append([
             Paragraph(f"<font fontName='Courier'>{str(acc)}</font>", body_style),
