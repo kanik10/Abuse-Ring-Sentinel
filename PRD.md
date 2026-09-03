@@ -13,7 +13,7 @@
 
 Individual syndicate accounts mimic organic customer behavior — placing unremarkable orders at standard prices with realistic intervals. The fraud is invisible in tabular per-row scoring; it is only exposed at the **relational graph infrastructure level**: shared device hardware identifiers, masked virtual card payments, clustered delivery coordinates, and circular referral chain cycles.
 
-Sentinel operates strictly as a **Tier-2 Human-in-the-Loop Decision Support Cockpit**: it reconstructs multi-entity bipartite graphs, runs Louvain community detection, extracts 18 structural and referral features, evaluates calibrated cluster probabilities via a cross-validated Champion Model, and presents complete visual and forensic evidence (PyVis interactive graphs, SHAP explanations, account risk rosters, and C-level PDF audit dossiers). **It never executes automated blocks, cancellations, or account freezes.**
+Sentinel operates strictly as a **Tier-2 Human-in-the-Loop Decision Support Cockpit**: it reconstructs multi-entity bipartite graphs, runs Louvain community detection, extracts 17 structural and referral features, evaluates calibrated cluster probabilities via a cross-validated Champion Model, and presents complete visual and forensic evidence (D3.js interactive graphs, SHAP explanations, account risk rosters, and C-level PDF audit dossiers). **It never executes automated blocks, cancellations, or account freezes.**
 
 ---
 
@@ -68,7 +68,7 @@ Coordinated multi-account abuse represents one of the fastest-growing loss categ
                                               │
                                               ▼
                       [Tier-2 Investigator Cockpit & Audit Export]
-            Streamlit Interactive Dashboard (PyVis Physics, Single-Account Ego-Graph,
+            Streamlit Interactive Dashboard (D3.js Physics, Single-Account Ego-Graph,
              SHAP Waterfall, Counterfactual Horizon) + Automated ReportLab PDF Dossiers
 ```
 
@@ -80,21 +80,21 @@ Coordinated multi-account abuse represents one of the fastest-growing loss categ
 | :--- | :--- | :--- |
 | **Synthetic Generator** | Python, NumPy, Pandas, Faker | Multi-seed generator with sleeper accounts, bridge anomalies, organic referral DAGs, and circular bonus farming rings |
 | **Entity Resolution & Graph** | NetworkX, Python-Louvain | Bipartite projection with co-occurrence weighting; modularity optimization clustering |
-| **Feature Extraction** | Custom Feature Pipeline | 18 features spanning graph topology, temporal spans, and directed referral dynamics |
+| **Feature Extraction** | Custom Feature Pipeline | 17 features spanning graph topology, temporal spans, and directed referral dynamics |
 | **Classifier** | Scikit-Learn (`Pipeline`) | Calibrated Logistic Regression + StandardScaler on 7 Champion Features (`CHAMPION_FEATURE_COLS`) |
 | **Threshold Optimization** | Cost-Curve Minimization | Pooled 15-seed sweep over 0.1x–100x FP cost multipliers (Plateau Midpoint = `0.1333`) |
 | **Validation Engine** | Percentile Bootstrap | 10,000 resamples computing 95% Confidence Intervals for Precision, Recall, and Net Cost |
-| **Backtest Engine** | Point-in-Time Temporal Reconstruction | 101 historical daily snapshots evaluating zero-lookahead latency and volume prevention |
-| **Investigator UI** | Streamlit, Altair, PyVis | Dark-mode cockpit with ego-graph controls, bipartite tree views, and SHAP explainability |
+| **Backtest Engine** | Point-in-Time Temporal Reconstruction | 101 historical snapshots at 7-day intervals evaluating zero-lookahead latency and volume prevention |
+| **Investigator UI** | Streamlit, Altair, D3.js | Dark-mode cockpit with ego-graph controls, bipartite tree views, and SHAP explainability |
 | **Dossier Generation** | ReportLab | Automated executive PDF reports with matching `#ec4899` pink / `#3b82f6` blue visual tokens |
 
 ---
 
 ## 6. Validated Benchmark Performance
 
-### Primary Cross-Validated Results (Canonical Population: 70 Clusters, 26 Rings)
+### Primary Cross-Validated Results (Canonical Population: 70 Candidate Clusters)
 * **Monitored Accounts**: 668 accounts with active resource sharing linkages
-* **True Positives (TP)**: **26 / 26 fraud rings** (18 resource rings + 8 referral rings)
+* **True Positives (TP)**: **26 / 26 flagged clusters** correctly matched to ring membership — 18 clusters contain resource-sharing ring members, 8 contain referral-ring members. (Ground truth has **20 distinct resource-sharing rings + 8 referral rings = 28 named rings**; two resource-ring pairs land in the same Louvain community, so 20 rings collapse to 18 ring-clusters. See §6's temporal backtest below, which evaluates at the ring level and reports 28/28.)
 * **False Positives (FP)**: **0** benign clusters falsely flagged
 * **False Negatives (FN)**: **0** rings missed
 * **Precision**: **`1.000`** (95% Bootstrap CI: `[1.000, 1.000]`)
@@ -106,7 +106,7 @@ Coordinated multi-account abuse represents one of the fastest-growing loss categ
 * **Net Financial Impact**: **`Rs. 7,06,478`** in verified savings
 * **Business Return on Investment**: **`~399x` return** per rupee of false-positive review expense
 
-### Zero-Lookahead Temporal Backtest (101 Historical Daily Snapshots)
+### Zero-Lookahead Temporal Backtest (101 Historical Snapshots at 7-Day Intervals)
 * **Ring Detection Rate**: **`28 / 28` (`100%`)**
 * **Median Detection Latency**: **`30.0 days`** from initial member creation
 * **Fraud Volume Intercepted Before Execution**: **`90.4%`**
@@ -140,7 +140,7 @@ To maintain the highest standards of scientific and engineering rigor, the follo
 | **Day 3** | Feature Engineering & Baseline | `feature_engineering.py`, `referral_features.py`, `classifier.py` | ✅ Completed |
 | **Day 4** | Cost-Based Threshold Optimization | `threshold_sweep.py`, cost sensitivity curves across 0.1x–100x FP multipliers | ✅ Completed |
 | **Day 5** | Defense-Only Scoring & Cockpit | `risk_scoring.py`, `account_scoring.py`, interactive `app_interactive.py` | ✅ Completed |
-| **Day 6** | Statistical Confidence & Backtesting | `bootstrap_threshold_ci.py` (10k resamples), `pooled_threshold_selection.py` (15 seeds), `temporal_reconstruction.py` (101 snapshots) | ✅ Completed |
+| **Day 6** | Statistical Confidence & Backtesting | `bootstrap_threshold_ci.py` (10k resamples), `pooled_threshold_selection.py` (15 seeds), `phase3_temporal_backtest.py` (101 snapshots, built on `temporal_reconstruction.py`) | ✅ Completed |
 | **Day 7** | Hardening, Polish & Documentation | Pinned `requirements.txt`, ReportLab `pdf_generator.py`, synchronized PRD and Data Dictionary | ✅ Completed |
 
 ---

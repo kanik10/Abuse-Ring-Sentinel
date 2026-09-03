@@ -2,7 +2,7 @@
 
 **Dataset Version:** V2 (Multi-Entity Bipartite Resolution + Directed Referral Abuse Rings)  
 **Location:** Canonical data resides in `day1_data/`  
-**Population Size:** 6,558 Accounts | 18,966 Orders | 2,240 Referrals | 26 Ground-Truth Fraud Rings
+**Population Size:** 6,558 Accounts | 18,966 Orders | 2,240 Referrals | 28 Ground-Truth Fraud Rings (20 resource-sharing + 8 referral)
 
 ---
 
@@ -22,6 +22,8 @@ Primary account entity registry representing legitimate customers, sleeper accou
 
 ### 1.2 Entity-Resolved Mapping Tables
 These tables map accounts to underlying hardware, network, and payment rails after entity resolution (collapsing alias accounts onto true physical entities). Each link contains a `first_seen_date` enabling point-in-time temporal reconstruction.
+
+> **Note:** `day1_data/` also contains `account_device.csv`, `account_payment.csv`, `account_address.csv`, and `account_ip.csv` — the pre-resolution counterparts of the four tables below. In the current synthetic generator these are identical to their `resolved_*` versions (no aliasing noise was introduced for this run); the pipeline reads exclusively from the `resolved_*` tables.
 
 #### `resolved_account_device.csv` (6,591 rows)
 | Column | Type | Description |
@@ -92,9 +94,29 @@ Directed graph of referral connections capturing both organic user invitations a
 
 ---
 
-### 1.6 Synthetic Artifacts & Bridge Logs
-* **`raw_to_true_resource.csv`** (10,544 rows): Cross-walk table recording raw noisy entity inputs vs. ground-truth resolved entities (e.g. typos, proxy shifts).
-* **`bridge_log.csv`** (10 rows): Adversarial edge cases where a coincidental innocent bystander is connected via a single resource link to an active fraud ring, testing community detection robustness.
+### 1.6 `referral_ground_truth.csv` (2,240 rows)
+**Evaluation Only.** Edge-level companion to `ground_truth.csv`'s account-level referral labels — one row per referral link in `referrals.csv`.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `referrer_id` | `string` (FK) | Account issuing the referral (matches `referrals.csv`). |
+| `referred_id` | `string` (FK) | Account activated by the referral (matches `referrals.csv`). |
+| `is_ring_referral` | `bool` | `True` if this specific referral edge is part of a referral-chain fraud ring, as opposed to an organic invitation. |
+
+---
+
+### 1.7 Synthetic Artifacts & Bridge Logs
+* **`raw_to_true_resource.csv`** (32,467 rows): Cross-walk table recording raw noisy entity inputs vs. ground-truth resolved entities (e.g. typos, proxy shifts).
+* **`bridge_log.csv`** (7 rows): Adversarial edge cases where a coincidental innocent bystander is connected via a single resource link to an active fraud ring, testing community detection robustness.
+
+| Column | Type | Description |
+| :--- | :--- | :--- |
+| `type` | `string` | Bridge scenario type. |
+| `a`, `b` | `string` | The two accounts joined by the bridging resource. |
+| `resource_type` | `string` | Which entity type (`device`, `payment`, `address`, `ip`) forms the bridge. |
+| `bridged_account` | `string` | The bystander account being bridged into the fraud cluster's orbit. |
+| `ring` | `string` | The fraud ring the bystander is adversarially connected to. |
+| `group` | `string` | The bystander's true (benign) coincidental group. |
 
 ---
 
@@ -109,7 +131,7 @@ Output of Louvain community detection run on the multi-entity projection graph $
 ---
 
 ### 2.2 `cluster_features.csv` & `cluster_predictions.csv` (70 Candidate Clusters)
-Cluster-level feature matrix containing 18 engineered structural, temporal, and referral features:
+Cluster-level feature matrix containing 17 engineered structural, temporal, and referral features (plus the `cluster_id` and `cluster_size` key/sizing columns):
 
 #### Core Graph Topology Features:
 * `cluster_size`: Number of distinct accounts in the community.
@@ -138,7 +160,17 @@ Cluster-level feature matrix containing 18 engineered structural, temporal, and 
 
 ---
 
-### 2.3 `final_model.joblib`
+### 2.3 `account_scores.csv` (488 rows) & `referral_cluster_features.csv` (8 rows)
+* **`account_scores.csv`**: Intra-cluster account-level risk ranking, output by `account_scoring.py`. One row per account belonging to a flagged cluster, used by the cockpit to distinguish mastermind hubs from peripheral sleepers.
+  * `account_id`, `cluster_id`: Identifiers.
+  * `n_shared_resources`, `within_cluster_degree`, `within_cluster_edge_weight_sum`: Local connectivity within the cluster.
+  * `creation_date_centrality`, `order_amount_centrality`: Normalized standing relative to other cluster members.
+  * `account_risk_score`: Composite per-account ranking score.
+* **`referral_cluster_features.csv`**: Referral-only feature slice (`referral_cycle_ratio`, `referral_resource_overlap_ratio`, `median_referral_activation_days`, `within_cluster_referral_density`) for the 8 clusters identified as referral rings.
+
+---
+
+### 2.4 `final_model.joblib`
 Serialized production Champion Model (`sklearn.pipeline.Pipeline`):
 * **Scaler**: `StandardScaler()` fit across training features.
 * **Classifier**: Calibrated `LogisticRegression(max_iter=1000, random_state=42)`.
@@ -146,8 +178,11 @@ Serialized production Champion Model (`sklearn.pipeline.Pipeline`):
 
 ---
 
-### 2.4 Benchmark & Temporal Audit Artifacts
-* **`temporal_detection_latencies.csv`** (28 rows): Backtest lifecycle table recording ring formation date, first flag date, detection latency in days, pre-flag volume, and prevented volume percentage across 101 historical snapshots.
-* **`temporal_backtest_summary.json`**: Macro benchmark metrics (101 snapshots, 100% detection rate, 30-day median lag, 90.4% volume prevented).
-* **`pooled_threshold_selection_summary.json`**: 15-seed pooled sensitivity analysis results establishing the plateau midpoint threshold (`0.1333`).
-* **`metrics_summary.json` & `final_report.md`**: Official audit report capturing verified confusion matrix ($\text{TP}=26, \text{FP}=0, \text{FN}=0, \text{TN}=44$), protected value (`Rs. 708,255`), and review cost (`Rs. 1,777`).
+### 2.5 Benchmark & Temporal Audit Artifacts
+* **`phase3_detection_latency_audit.csv`** (28 rows) & **`phase3_counterfactual_summary.json`**: The canonical temporal audit output, produced by `phase3_temporal_backtest.py` (101 snapshots at 7-day intervals). Includes the resource-vs-referral subgroup breakdown (e.g. `resource_sharing_median_latency_days`, `referral_chain_median_latency_days`).
+* **`temporal_detection_latencies.csv`** (28 rows) & **`temporal_backtest_summary.json`**: Compatibility-format copies of the same run, written by `phase3_temporal_backtest.py` under the filenames the older `temporal_reconstruction.py` module used, so downstream readers don't need to change.
+* **`pooled_threshold_selection_results.csv`** & **`pooled_threshold_selection_summary.json`**: 15-seed pooled sensitivity analysis results establishing the plateau midpoint threshold (`0.1333`).
+* **`threshold_sweep_results.csv`**: 0.1x–100x false-positive-cost-multiplier sweep, per candidate model.
+* **`bootstrap_threshold_ci_results.csv`**: Per-resample detail underlying the 10,000-resample bootstrap confidence intervals.
+* **`naive_baseline_results.csv`**: Precision/recall/F1 of the naive shared-address-count baseline (`naive_baseline.py`) across several size thresholds, for comparison against the Champion model.
+* **`metrics_summary.json` & `final_report.md`**: Official audit report capturing the verified cluster-level confusion matrix ($\text{TP}=26, \text{FP}=0, \text{FN}=0, \text{TN}=44$ — 26 of the 70 candidate clusters), protected value (`Rs. 708,255`), and review cost (`Rs. 1,777`).
