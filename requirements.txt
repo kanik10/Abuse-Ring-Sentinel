@@ -1,0 +1,12 @@
+altair==6.2.2
+faker==40.37.0
+joblib==1.5.2
+matplotlib==3.10.6
+networkx==3.6.1
+numpy==2.3.2
+pandas==2.3.2
+python-louvain==0.16
+reportlab==5.0.1
+scikit-learn==1.7.1
+streamlit==1.62.0
+xgboost==3.4.1

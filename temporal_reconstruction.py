@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -34,6 +35,22 @@ from risk_scoring import CHAMPION_FEATURE_COLS
 from threshold_config import CHOSEN_THRESHOLD
 
 DATA_DIR = Path("day1_data")
+
+
+def _resolve_data_path(filename: str) -> Path:
+    p = DATA_DIR / filename
+    if p.exists():
+        return p
+    fallback = Path(filename)
+    if fallback.exists():
+        warnings.warn(
+            f"File '{p}' not found; falling back to root-level '{fallback}'. "
+            "Canonical data should reside in day1_data/.",
+            UserWarning,
+            stacklevel=2,
+        )
+        return fallback
+    return p
 
 
 def find_dominant_cluster(
@@ -163,14 +180,14 @@ def run_temporal_backtest(
     Measures detection latency in days and fraud volume prevented before execution.
     """
     # Load required data
-    dev_path = DATA_DIR / "resolved_account_device.csv" if (DATA_DIR / "resolved_account_device.csv").exists() else Path("resolved_account_device.csv")
-    pay_path = DATA_DIR / "resolved_account_payment.csv" if (DATA_DIR / "resolved_account_payment.csv").exists() else Path("resolved_account_payment.csv")
-    addr_path = DATA_DIR / "resolved_account_address.csv" if (DATA_DIR / "resolved_account_address.csv").exists() else Path("resolved_account_address.csv")
-    ip_path = DATA_DIR / "resolved_account_ip.csv" if (DATA_DIR / "resolved_account_ip.csv").exists() else Path("resolved_account_ip.csv")
-    acc_path = DATA_DIR / "accounts.csv" if (DATA_DIR / "accounts.csv").exists() else Path("accounts.csv")
-    orders_path = DATA_DIR / "orders.csv" if (DATA_DIR / "orders.csv").exists() else Path("orders.csv")
-    ref_path = DATA_DIR / "referrals.csv" if (DATA_DIR / "referrals.csv").exists() else Path("referrals.csv")
-    gt_path = DATA_DIR / "ground_truth.csv" if (DATA_DIR / "ground_truth.csv").exists() else Path("ground_truth.csv")
+    dev_path = _resolve_data_path("resolved_account_device.csv")
+    pay_path = _resolve_data_path("resolved_account_payment.csv")
+    addr_path = _resolve_data_path("resolved_account_address.csv")
+    ip_path = _resolve_data_path("resolved_account_ip.csv")
+    acc_path = _resolve_data_path("accounts.csv")
+    orders_path = _resolve_data_path("orders.csv")
+    ref_path = _resolve_data_path("referrals.csv")
+    gt_path = _resolve_data_path("ground_truth.csv")
 
     dev = pd.read_csv(dev_path)
     pay = pd.read_csv(pay_path)
@@ -295,20 +312,36 @@ def run_temporal_backtest(
     res_df = pd.DataFrame(list(ring_records.values()))
     flagged_df = res_df[res_df["flagged"] == True]
 
-    summary = {
-        "snapshots_evaluated": len(snapshot_dates),
-        "snapshot_frequency_days": snapshot_freq_days,
-        "backtest_duration_seconds": round(time.time() - t0, 1),
-        "total_rings": len(res_df),
-        "rings_flagged": int(res_df["flagged"].sum()),
-        "detection_rate_pct": round(100.0 * res_df["flagged"].mean(), 1),
-        "median_detection_latency_days": round(float(flagged_df["detection_latency_days"].median()), 1),
-        "mean_detection_latency_days": round(float(flagged_df["detection_latency_days"].mean()), 1),
-        "min_detection_latency_days": int(flagged_df["detection_latency_days"].min()),
-        "max_detection_latency_days": int(flagged_df["detection_latency_days"].max()),
-        "average_volume_prevented_pct": round(float(flagged_df["volume_prevented_pct"].mean()), 1),
-        "total_prevented_fraud_amount": round(float(flagged_df["post_flag_fraud_volume"].sum()), 2),
-    }
+    if flagged_df.empty:
+        summary = {
+            "snapshots_evaluated": len(snapshot_dates),
+            "snapshot_frequency_days": snapshot_freq_days,
+            "backtest_duration_seconds": round(time.time() - t0, 1),
+            "total_rings": len(res_df),
+            "rings_flagged": 0,
+            "detection_rate_pct": 0.0,
+            "median_detection_latency_days": None,
+            "mean_detection_latency_days": None,
+            "min_detection_latency_days": None,
+            "max_detection_latency_days": None,
+            "average_volume_prevented_pct": 0.0,
+            "total_prevented_fraud_amount": 0.0,
+        }
+    else:
+        summary = {
+            "snapshots_evaluated": len(snapshot_dates),
+            "snapshot_frequency_days": snapshot_freq_days,
+            "backtest_duration_seconds": round(time.time() - t0, 1),
+            "total_rings": len(res_df),
+            "rings_flagged": int(res_df["flagged"].sum()),
+            "detection_rate_pct": round(100.0 * res_df["flagged"].mean(), 1),
+            "median_detection_latency_days": round(float(flagged_df["detection_latency_days"].median()), 1),
+            "mean_detection_latency_days": round(float(flagged_df["detection_latency_days"].mean()), 1),
+            "min_detection_latency_days": int(flagged_df["detection_latency_days"].min()),
+            "max_detection_latency_days": int(flagged_df["detection_latency_days"].max()),
+            "average_volume_prevented_pct": round(float(flagged_df["volume_prevented_pct"].mean()), 1),
+            "total_prevented_fraud_amount": round(float(flagged_df["post_flag_fraud_volume"].sum()), 2),
+        }
 
     if save_csv:
         res_df.to_csv("temporal_detection_latencies.csv", index=False)

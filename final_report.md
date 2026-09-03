@@ -20,13 +20,13 @@
 - Recall: 1.000
 
 ## Account-level cost/benefit at this threshold
-- Ring fraud value protected (caught): Rs.553,253.35
+- Ring fraud value protected (caught): Rs.708,254.88
 - Ring fraud value still missed: Rs.0.00
-- Legitimate accounts wrongly caught in a flagged cluster: 69 total -- 2 coincidental/benign-lookalike (3%), 67 other (97%)
-- Cost of those false positives, at 1x avg order value per account: Rs.61,291.87
-- **Net: protects Rs.553,253 of fraud at a cost of roughly
-  Rs.61,292 in false-positive review/friction (at a conservative
-  1x-avg-order-value cost assumption) -- a ~9x return.**
+- Legitimate accounts wrongly caught in a flagged cluster: 2 total -- 2 coincidental/benign-lookalike (100%), 0 other (0%)
+- Cost of those false positives, at 1x avg order value per account: Rs.1,776.58
+- **Net: protects Rs.708,255 of fraud at a cost of roughly
+  Rs.1,777 in false-positive review/friction (at a conservative
+  1x-avg-order-value cost assumption) -- a ~399x return.**
 
 ## Honest limitations of this number
 - N=70 clusters (26 flagged at this threshold) -- treat

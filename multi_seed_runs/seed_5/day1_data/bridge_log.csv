@@ -1,8 +1,0 @@
-type,ring,group,resource_type,bridged_account,a,b
-ring_to_coincidental,RING014,COINC0020,ip,ACC4e8a81fa7d,,
-ring_to_ring,,,address,ACC9beb50fd22,RING014,RING018
-ring_to_coincidental,RING000,COINC0003,ip,ACCc6081356b6,,
-ring_to_ring,,,ip,ACC3c97d3794b,RING012,RING017
-ring_to_ring,,,device,ACCca87b1cc7f,RING000,RING006
-ring_to_coincidental,RING002,COINC0044,device,ACC9d9cc4e09b,,
-ring_to_coincidental,RING005,COINC0026,device,ACCbde6ba6948,,

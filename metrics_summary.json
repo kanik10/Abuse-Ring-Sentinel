@@ -10,11 +10,11 @@
   "tn": 44,
   "precision": 1.0,
   "recall": 1.0,
-  "ring_value_protected": 553253.35,
+  "ring_value_protected": 708254.88,
   "ring_value_missed": 0.0,
-  "non_ring_flagged_accounts": 69,
+  "non_ring_flagged_accounts": 2,
   "fp_coincidental": 2,
-  "fp_other": 67,
+  "fp_other": 0,
   "bootstrap_precision_ci": [
     1.0,
     1.0

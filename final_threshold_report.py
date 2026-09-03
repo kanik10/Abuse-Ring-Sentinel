@@ -73,6 +73,10 @@ def main():
     avg_order_value = orders["amount"].mean()
 
     merged = clusters.merge(ground_truth, on="account_id", how="left")
+    is_ring = (merged["is_ring_member"] == True)
+    if "is_referral_ring_member" in merged.columns:
+        is_ring = is_ring | (merged["is_referral_ring_member"] == True)
+    merged["is_ring_member"] = is_ring
     order_value = orders.groupby("account_id")["amount"].sum()
     merged["order_value"] = merged["account_id"].map(order_value).fillna(0.0)
 
