@@ -31,6 +31,12 @@ MODEL_COLUMNS = {
     "XGBoost (pure graph)": "oof_prob_xgb_pure_graph",
     "LogReg (full)": "oof_prob_logreg_full",
     "XGBoost (full)": "oof_prob_xgb_full",
+    # Champion feature set actually shipped in risk_scoring.py
+    # (CHAMPION_FEATURE_COLS = pure graph + referral). Included so the
+    # cost/threshold tradeoff is examined for the model that's actually
+    # deployed, not just the earlier pure-graph-only candidate.
+    "LogReg (pure graph + referral) -- champion": "oof_prob_logreg_pure_graph_referral",
+    "XGBoost (pure graph + referral)": "oof_prob_xgb_pure_graph_referral",
 }
 
 
@@ -39,6 +45,10 @@ def build_cluster_cost_inputs(clusters: pd.DataFrame, ground_truth: pd.DataFrame
     """Per cluster: value of ring-member orders (cost if missed), and count
     of non-ring members (cost multiplier target if wrongly flagged)."""
     merged = clusters.merge(ground_truth, on="account_id", how="left")
+    is_ring = (merged["is_ring_member"] == True)
+    if "is_referral_ring_member" in merged.columns:
+        is_ring = is_ring | (merged["is_referral_ring_member"] == True)
+    merged["is_ring_member"] = is_ring
     order_value = orders.groupby("account_id")["amount"].sum()
     merged["order_value"] = merged["account_id"].map(order_value).fillna(0.0)
 
@@ -85,6 +95,10 @@ def main():
 
     best_overall = []
     for model_name, col in MODEL_COLUMNS.items():
+        if col not in predictions.columns:
+            print(f"[skip] {model_name}: column '{col}' not in cluster_predictions.csv "
+                  f"(run referral_features.py + feature_engineering.py + classifier.py first)\n")
+            continue
         y_prob = predictions[col].values
         print("=" * 78)
         print(model_name)

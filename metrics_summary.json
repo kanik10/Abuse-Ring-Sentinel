@@ -1,20 +1,20 @@
 {
   "synth_seed": null,
-  "chosen_model": "Logistic Regression (pure graph)",
-  "chosen_threshold": 0.48111024428768,
-  "n_clusters": 63,
-  "n_flagged": 19,
-  "tp": 19,
+  "chosen_model": "Logistic Regression (pure graph + referral) -- champion",
+  "chosen_threshold": 0.1333192760434377,
+  "n_clusters": 70,
+  "n_flagged": 26,
+  "tp": 26,
   "fp": 0,
   "fn": 0,
   "tn": 44,
   "precision": 1.0,
   "recall": 1.0,
-  "ring_value_protected": 550751.26,
+  "ring_value_protected": 553253.35,
   "ring_value_missed": 0.0,
-  "non_ring_flagged_accounts": 5,
-  "fp_coincidental": 5,
-  "fp_other": 0,
+  "non_ring_flagged_accounts": 69,
+  "fp_coincidental": 2,
+  "fp_other": 67,
   "bootstrap_precision_ci": [
     1.0,
     1.0
@@ -25,8 +25,8 @@
   ],
   "bootstrap_cost_ci": [
     0.0,
-    13331.073993709013
+    5329.727513445112
   ],
-  "bootstrap_best_threshold_median": 0.48111024428768,
-  "bootstrap_pct_near_locked_threshold": 63.23
+  "bootstrap_best_threshold_median": 0.5285064087406933,
+  "bootstrap_pct_near_locked_threshold": 0.0
 }

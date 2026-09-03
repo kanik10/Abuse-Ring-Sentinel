@@ -1,11 +1,10 @@
 """
-Day 6 (in progress) -- bootstrap_threshold_ci.py
+bootstrap_threshold_ci.py -- Nonparametric Bootstrap Confidence Interval Engine
 
-PHASE 1 of the CI-based threshold item: the bootstrap engine itself, run
-standalone against the already-committed cluster_predictions.csv/clusters.csv.
-Nothing here is wired into final_threshold_report.py yet -- this script's
-only job is "does the engine produce sane numbers." Wiring happens in a
-later phase.
+Runs a nonparametric percentile bootstrap (B=10,000 resamples) on the Champion
+Model (pure graph + referral) at CHOSEN_THRESHOLD (~0.1333).
+Also re-sweeps the cost function per resample to measure threshold stability.
+Can be executed standalone or imported by final_threshold_report.py.
 
 --- Why bootstrap, not a normal-approximation CI (see conversation) ---
 precision/recall are proportions bounded on [0,1] and sit at or near the
@@ -48,7 +47,11 @@ from threshold_config import CHOSEN_THRESHOLD  # single source of truth -- reads
                                                # pooled_threshold_selection_summary.json.
 
 DATA_DIR = "day1_data"
-CHOSEN_COLUMN = "oof_prob_logreg_pure_graph"
+# Must match risk_scoring.py's CHAMPION_FEATURE_COLS (pure graph + referral) --
+# that is the model actually shipped as final_model.joblib. Bootstrapping the
+# old pure-graph-only column would validate a threshold for a model that
+# isn't the one in production.
+CHOSEN_COLUMN = "oof_prob_logreg_pure_graph_referral"
 DEFAULT_FP_MULTIPLIER = 1.0  # matches the "1x avg order value" headline assumption in final_report.md
 
 N_BOOTSTRAP = 10_000

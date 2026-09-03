@@ -26,11 +26,9 @@ from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Fallback — used only when pooled_threshold_selection_summary.json is absent.
-# This was the threshold chosen in Day 4 Phase 3 from the single canonical
-# dataset; it is intentionally left here as the safe default rather than
-# being deleted, so this module always produces a usable value.
+# Uses the cross-seed pooled plateau midpoint (0.1333) chosen across 15 seeds.
 # ---------------------------------------------------------------------------
-_FALLBACK_THRESHOLD = 0.48111024428768
+_FALLBACK_THRESHOLD = 0.1333192760434377
 
 _SUMMARY_FILE = Path(__file__).resolve().parent / "pooled_threshold_selection_summary.json"
 

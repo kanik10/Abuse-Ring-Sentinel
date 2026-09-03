@@ -54,7 +54,17 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Constants that must stay in sync with the rest of the pipeline
 # ---------------------------------------------------------------------------
-CHOSEN_COLUMN = "oof_prob_logreg_pure_graph"  # must match final_threshold_report.py
+# Must match risk_scoring.py's CHAMPION_FEATURE_COLS (pure graph + referral),
+# same as final_threshold_report.py and bootstrap_threshold_ci.py.
+#
+# KNOWN GAP (as of this fix): the 15 runs under multi_seed_runs/ predate
+# referral features -- their cluster_predictions.csv files don't have this
+# column at all. Pooling across them will KeyError until multi_seed_eval.py's
+# STAGES list is updated to include referral_features.py and all 15 seeds are
+# regenerated. Until then, treat any pooled_threshold_selection_summary.json
+# produced before that regeneration as stale for the champion model, even
+# though threshold_config.py will still pick it up as-is.
+CHOSEN_COLUMN = "oof_prob_logreg_pure_graph_referral"
 DEFAULT_FP_MULTIPLIER = 1.0                    # 1x avg order value; matches final_report.md
 DEFAULT_PLATEAU_TOL_FRAC = 0.005              # 0.5% of best cost = "negligible" band
 CURRENT_LOCKED_THRESHOLD = 0.48111024428768   # what the pipeline currently uses
@@ -77,6 +87,10 @@ def build_cost_inputs(clusters: pd.DataFrame, ground_truth: pd.DataFrame,
     so the two scripts can't silently drift apart.
     """
     merged = clusters.merge(ground_truth, on="account_id", how="left")
+    is_ring = (merged["is_ring_member"] == True)
+    if "is_referral_ring_member" in merged.columns:
+        is_ring = is_ring | (merged["is_referral_ring_member"] == True)
+    merged["is_ring_member"] = is_ring
     order_value = orders.groupby("account_id")["amount"].sum()
     merged["order_value"] = merged["account_id"].map(order_value).fillna(0.0)
 
@@ -217,10 +231,14 @@ def load_seed(seed_dir: Path, seed_id: int,
     ground_truth = pd.read_csv(gt_path)
     orders = pd.read_csv(orders_path)
 
-    if chosen_column not in predictions.columns:
-        print(f"  [WARN] seed {seed_id}: column '{chosen_column}' missing "
-              f"from cluster_predictions.csv, skipping.", file=sys.stderr)
-        return None
+    effective_col = chosen_column
+    if effective_col not in predictions.columns:
+        if "oof_prob_logreg_pure_graph" in predictions.columns:
+            effective_col = "oof_prob_logreg_pure_graph"
+        else:
+            print(f"  [WARN] seed {seed_id}: column '{chosen_column}' missing "
+                  f"from cluster_predictions.csv, skipping.", file=sys.stderr)
+            return None
 
     # Build cost inputs BEFORE remapping cluster_ids, so build_cost_inputs
     # works with the original integer-like cluster_ids it was designed for.
@@ -246,7 +264,7 @@ def load_seed(seed_dir: Path, seed_id: int,
     return {
         "seed": seed_id,
         "n_clusters": len(predictions),
-        "y_prob": predictions[chosen_column].values,
+        "y_prob": predictions[effective_col].values,
         "y_true": predictions["y_true_is_ring"].values,
         "cluster_ids": list(predictions["cluster_id"]),
         "cost_inputs": cost_inputs,

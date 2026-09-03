@@ -1,33 +1,35 @@
 # Day 4 Final Report — Abuse-Ring Sentinel Operating Point
 
 ## Chosen model and threshold
-- **Model:** Logistic Regression (pure graph)
-- **Threshold:** 0.48111024428768
+- **Model:** Logistic Regression (pure graph + referral) -- champion
+- **Threshold:** 0.1333192760434377
 - **Why:** cost-optimal threshold was stable across the full 0.1x-100x
   false-positive-cost sweep (Day 4 Phase 2). The model is also
-  interpretable, and uses the same pure graph-topology feature set already
-  recommended in Day 3 as the more generalizable result.
+  interpretable, and is the same pure-graph + referral feature set
+  ("champion") that risk_scoring.py actually fits and ships as
+  final_model.joblib -- this threshold is validated against that exact
+  model's own out-of-fold scores, not a different feature set's.
 
-## Cluster-level confusion matrix (out-of-fold, 63 clusters)
+## Cluster-level confusion matrix (out-of-fold, 70 clusters)
 | | Predicted: ring | Predicted: not ring |
 |---|---|---|
-| **Actual: ring** | TP = 19 | FN = 0 |
+| **Actual: ring** | TP = 26 | FN = 0 |
 | **Actual: not ring** | FP = 0 | TN = 44 |
 
 - Precision: 1.000
 - Recall: 1.000
 
 ## Account-level cost/benefit at this threshold
-- Ring fraud value protected (caught): Rs.550,751.26
+- Ring fraud value protected (caught): Rs.553,253.35
 - Ring fraud value still missed: Rs.0.00
-- Legitimate accounts wrongly caught in a flagged cluster: 5 total -- 5 coincidental/benign-lookalike (100%), 0 other (0%)
-- Cost of those false positives, at 1x avg order value per account: Rs.4,443.69
-- **Net: protects Rs.550,751 of fraud at a cost of roughly
-  Rs.4,444 in false-positive review/friction (at a conservative
-  1x-avg-order-value cost assumption) -- a ~124x return.**
+- Legitimate accounts wrongly caught in a flagged cluster: 69 total -- 2 coincidental/benign-lookalike (3%), 67 other (97%)
+- Cost of those false positives, at 1x avg order value per account: Rs.61,291.87
+- **Net: protects Rs.553,253 of fraud at a cost of roughly
+  Rs.61,292 in false-positive review/friction (at a conservative
+  1x-avg-order-value cost assumption) -- a ~9x return.**
 
 ## Honest limitations of this number
-- N=63 clusters (19 flagged at this threshold) -- treat
+- N=70 clusters (26 flagged at this threshold) -- treat
   precision/recall as directionally reliable, not statistically tight.
 - The false-positive cost assumption (1x avg order value per wrongly-
   flagged account) is a modeling choice, not a measured business figure --
@@ -45,9 +47,9 @@ draw of clusters have changed the answer."
 
 - Precision at the locked threshold: 95% CI = [1.000, 1.000]
 - Recall at the locked threshold: 95% CI = [1.000, 1.000]
-- Total cost at the locked threshold: 95% CI = [Rs.0, Rs.13,331]
-- Each resample's OWN cost-optimal threshold: min=0.4811, median=0.4811, max=0.9857
-- 63.2% of resamples had their own optimum within
-  +/-0.05 of the locked threshold (0.4811) -- read this as
+- Total cost at the locked threshold: 95% CI = [Rs.0, Rs.5,330]
+- Each resample's OWN cost-optimal threshold: min=0.5285, median=0.5285, max=0.9828
+- 0.0% of resamples had their own optimum within
+  +/-0.05 of the locked threshold (0.1333) -- read this as
   how confidently "single" this operating point really is, not as an
   error bar on precision/recall.

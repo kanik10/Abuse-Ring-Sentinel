@@ -36,8 +36,12 @@ from threshold_config import CHOSEN_THRESHOLD  # single source of truth -- value
                                                # everywhere without touching any code.
 
 DATA_DIR = "day1_data"
-CHOSEN_MODEL = "Logistic Regression (pure graph)"
-CHOSEN_COLUMN = "oof_prob_logreg_pure_graph"
+# CHOSEN_MODEL/CHOSEN_COLUMN must match risk_scoring.py's CHAMPION_FEATURE_COLS
+# (pure graph + referral) -- that is the model actually fit and shipped as
+# final_model.joblib. Using the old pure-graph-only OOF column here would
+# report metrics for a model that isn't the one in production.
+CHOSEN_MODEL = "Logistic Regression (pure graph + referral) -- champion"
+CHOSEN_COLUMN = "oof_prob_logreg_pure_graph_referral"
 
 
 def false_positive_breakdown(flagged_accounts: pd.DataFrame) -> tuple[int, int]:
@@ -132,8 +136,10 @@ def main():
 - **Threshold:** {CHOSEN_THRESHOLD}
 - **Why:** cost-optimal threshold was stable across the full 0.1x-100x
   false-positive-cost sweep (Day 4 Phase 2). The model is also
-  interpretable, and uses the same pure graph-topology feature set already
-  recommended in Day 3 as the more generalizable result.
+  interpretable, and is the same pure-graph + referral feature set
+  ("champion") that risk_scoring.py actually fits and ships as
+  final_model.joblib -- this threshold is validated against that exact
+  model's own out-of-fold scores, not a different feature set's.
 
 ## Cluster-level confusion matrix (out-of-fold, {n_clusters} clusters)
 | | Predicted: ring | Predicted: not ring |

@@ -32,7 +32,7 @@
   ],
   "n_clusters_pooled": 954,
   "n_ring_clusters": 292,
-  "model_column": "oof_prob_logreg_pure_graph",
+  "model_column": "oof_prob_logreg_pure_graph_referral",
   "performance_at_recommended": {
     "threshold": 0.1333192760434377,
     "tp": 292,
