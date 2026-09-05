@@ -205,60 +205,197 @@ Abuse-Ring-Sentinel/
 
 ## ⚡ Quickstart & How to Run
 
-### 1. Environment Setup
-Clone the repository and install the pinned dependencies:
+Choose the execution pathway that fits your evaluation needs:
+
+---
+
+### Option 1: Docker Container (Fastest / Zero-Setup)
+
+The entire application—including all dependencies, graph algorithms, and Streamlit cockpit—is containerized and configured with a built-in health check.
+
+#### 1. Build the Docker Image
+```bash
+docker build -t abuse-ring-sentinel .
+```
+
+#### 2. Run the Container
+```bash
+docker run -d --name abuse-ring-sentinel -p 8501:8501 abuse-ring-sentinel
+```
+> [!NOTE]
+> If port `8501` is already in use on your machine, map to port `8502`:  
+> `docker run -d --name abuse-ring-sentinel -p 8502:8501 abuse-ring-sentinel` and open `http://localhost:8502`.
+
+#### 3. Or Launch via Docker Compose
+```bash
+docker compose up -d --build
+```
+
+Open your browser at **`http://localhost:8501`** to interact with the forensic cockpit.
+
+To stop and remove the container:
+```bash
+docker stop abuse-ring-sentinel && docker rm abuse-ring-sentinel
+# Or if using Compose:
+docker compose down
+```
+
+---
+
+### Option 2: Automated Reproducibility Runner (`run_for_judges.py`)
+
+For evaluators and judges who want to verify every benchmark claim and model metric with a single command.
+
+#### 1. Environment Setup
 ```bash
 git clone https://github.com/kanik10/Abuse-Ring-Sentinel.git
 cd Abuse-Ring-Sentinel
 pip install -r requirements.txt
 ```
 
-### 2. Launch the Interactive Dashboard
-Launch the Streamlit Trust & Safety Cockpit:
+#### 2. Run the One-Command Evaluator
+* **Fast Verification Mode (~1-2 minutes)**: Validates all metrics against the committed canonical artifacts, runs the 10,000-resample bootstrap, executes the 101-snapshot temporal backtest, verifies cryptographic audit logs, and builds `dashboard.html`:
+  ```bash
+  python run_for_judges.py
+  ```
+  *(Add `--skip-tests` if you wish to bypass the unit test suite during live demos).*
+
+* **Full Pipeline Regeneration (`--full`)**: Re-executes entity resolution, Louvain community clustering, dual-topology feature engineering, classifier CV, and the 15-seed multi-seed evaluation from scratch:
+  ```bash
+  python run_for_judges.py --full
+  ```
+
+#### 3. Launch the Interactive Dashboard
+Once verified, spin up the Streamlit analyst cockpit:
 ```bash
 streamlit run src/app_interactive.py
 ```
-Open your browser at `http://localhost:8501`. Explore clusters, inspect ego-graphs, adjust hop radii, and export executive PDF dossiers.
+Open **`http://localhost:8501`** in your browser.
 
-### 3. Verify Model Evaluation & Metrics
-Run the synchronized threshold evaluation against the committed data:
+---
+
+### Option 3: Manual File-by-File Pipeline Execution
+
+Run each pipeline stage individually from raw synthetic data generation through production scoring and dashboard generation:
+
+#### Step 1: Generate Synthetic Relational Benchmark Data
+Creates the canonical multi-entity relational dataset in `day1_data/` with planted syndicate topologies, organic user orders, and adversarial resource bridges:
+```bash
+python src/generate_synthetic_data_v2.py
+```
+*Outputs: `day1_data/accounts.csv`, `orders.csv`, `referrals.csv`, and raw linkage tables.*
+
+#### Step 2: Entity Resolution & Mapping Normalization
+Normalizes noisy physical device IDs, payment instrument tokens, delivery addresses, and IP subnets into canonical resolved identifiers:
+```bash
+python src/entity_resolution.py
+```
+*Outputs: `day1_data/resolved_account_device.csv`, `resolved_account_payment.csv`, etc.*
+
+#### Step 3: Graph Projection & Louvain Modularity Clustering
+Builds the weighted bipartite projection graph (via `src/graph_builder.py`) and clusters accounts into candidate syndicates ($N \ge 2$):
+```bash
+python src/community_detection.py
+```
+*Outputs: `clusters.csv` (668 candidate accounts partitioned into 70 communities).*
+
+#### Step 4: Directed Referral Dynamics & Cycle Detection
+Analyzes directed referral chains to detect circular referral loops, referral burst velocities, and activation lag anomalies:
+```bash
+python src/referral_features.py
+```
+*Outputs: `referral_cluster_features.csv`.*
+
+#### Step 5: Dual-Topology Feature Engineering
+Extracts 17 topological graph features (Entity Reuse Ratio, internal density, PageRank, degree centrality, betweenness) and merges referral dynamic metrics:
+```bash
+python src/feature_engineering.py
+```
+*Outputs: `cluster_features.csv` (17 features across all 70 candidate clusters).*
+
+#### Step 6: 5-Fold Cross-Validation & Model Selection
+Trains candidate classifiers (Tabular Baseline, Random Forest, Gradient Boosting, Logistic Regression) using Stratified 5-Fold CV:
+```bash
+python src/classifier.py
+```
+*Outputs: `cluster_predictions.csv`.*
+
+#### Step 7: Intra-Cluster Account Risk Scoring
+Scores individual nodes within candidate clusters to separate high-centrality masterminds from peripheral sleeper accounts:
+```bash
+python src/account_scoring.py
+```
+*Outputs: `account_scores.csv`.*
+
+#### Step 8: Cost Curve & Threshold Sensitivity Sweep
+Simulates operating points across a 0.1x to 100x false-positive cost spectrum to map total business financial loss:
+```bash
+python src/threshold_sweep.py
+```
+*Outputs: `threshold_sweep_results.csv`.*
+
+#### Step 9: 15-Seed Pooled Threshold Selection
+Evaluates candidate thresholds across 15 independent synthetic random seeds (954 clusters, 292 true rings) to lock the optimal plateau midpoint:
+```bash
+python src/pooled_threshold_selection.py
+```
+*Outputs: `pooled_threshold_selection_summary.json` (locking `CHOSEN_THRESHOLD = 0.1333`).*
+
+#### Step 10: Synchronized Benchmark Audit Report
+Applies the locked threshold, computes confusion matrix metrics, ROI, and updates official audit summaries:
 ```bash
 python src/final_threshold_report.py
 ```
-*Outputs: 70 clusters, 26 true rings, 26 flagged (100% Precision, 100% Recall), Rs. 708,255 protected, Rs. 1,777 FP review cost (~399x ROI).*
+*Outputs: `metrics_summary.json` and `docs/final_report.md` (100% Precision, 100% Recall, Rs. 708,255 protected).*
 
-### 4. Run the Zero-Lookahead Temporal Backtest
-Execute the full 101-snapshot historical reconstruction backtest, including the resource-vs-referral subgroup breakdown (`src/temporal_reconstruction.py` provides the underlying point-in-time reconstruction functions that this script imports and calls):
+#### Step 11: Production Champion Model Export & Cryptographic Audit Logging
+Fits the Champion model on all clusters, serializes the pipeline, and writes the SHA-256 hash-chained audit log:
 ```bash
-python src/phase3_temporal_backtest.py
+python src/risk_scoring.py
 ```
-*Outputs: 101 snapshots evaluated (7-day intervals), 100% ring detection rate (28/28), 30.0-day median detection latency, 90.4% fraud volume prevented. Writes `phase3_detection_latency_audit.csv` and `phase3_counterfactual_summary.json`, plus compatibility copies `temporal_detection_latencies.csv` and `temporal_backtest_summary.json`.*
+*Outputs: `final_model.joblib` and byte-reproducible `audit_log.jsonl`.*
 
-### 5. Run Bootstrap Statistical Confidence Intervals
-Compute 10,000 bootstrap resamples for Precision, Recall, and Cost:
+#### Step 12: Cryptographic Audit Chain Verification
+Validates the cryptographic integrity of `audit_log.jsonl` by verifying every parent-child SHA-256 hash pointer:
+```bash
+python src/verify_audit_log.py
+```
+*Outputs: `OK: 26 entries, chain intact`.*
+
+#### Step 13: 10,000-Resample Non-Parametric Bootstrap CIs
+Calculates rigorous 95% confidence intervals for Precision, Recall, and Net Cost under empirical cluster resampling:
 ```bash
 python src/bootstrap_threshold_ci.py
 ```
+*Outputs: `bootstrap_threshold_ci_results.csv` (Precision 95% CI: `[1.000, 1.000]`).*
 
-### 6. Compare Against a Naive Baseline (optional)
-See how a simple "large shared-address-group" heuristic compares to the full graph pipeline:
+#### Step 14: Zero-Lookahead Point-in-Time Temporal Backtest
+Reconstructs 101 historical graph states at 7-day intervals (using `src/temporal_reconstruction.py`) to measure true detection latency:
+```bash
+python src/phase3_temporal_backtest.py
+```
+*Outputs: `phase3_detection_latency_audit.csv` and `phase3_counterfactual_summary.json` (90.4% fraud volume prevented before order execution).*
+
+#### Step 15: Naive Heuristic Baseline Comparison
+Evaluates a simple shared-address threshold rule against the full graph pipeline:
 ```bash
 python src/naive_baseline.py
 ```
-*The naive baseline tops out around F1 ≈ 0.88 (precision ~1.0, recall ~79%) — the Champion model's 1.000/1.000 reflects what the graph and referral features add over row-level heuristics.*
+*Outputs: `naive_baseline_results.csv` (proves the Champion model improves Recall from 78.7% to 100.0% and F1 from 0.881 to 1.000).*
 
-### 7. Build the Offline Dashboard & Verify Audit Log (optional)
-`src/risk_scoring.py` writes a byte-reproducible, hash-chained `audit_log.jsonl` (with canonical JSON serialization and SHA-256 cryptographic linkage).
-You can verify the cryptographic chain integrity with `src/verify_audit_log.py`:
-```bash
-python src/risk_scoring.py
-python src/verify_audit_log.py
-```
-
-`src/build_dashboard.py` reads `audit_log.jsonl` (automatically unwrapping the hash-chain wrapper) and generates a self-contained `dashboard.html` that opens via `file://` with no server — useful for reviewers who can't run Streamlit:
+#### Step 16: Build Self-Contained Offline Dashboard
+Generates a standalone HTML dashboard with embedded JSON data that opens via `file://` with no web server:
 ```bash
 python src/build_dashboard.py
 ```
+*Outputs: `dashboard.html`.*
+
+#### Step 17: Launch Interactive Forensic Cockpit
+Launches the full interactive Streamlit cockpit with D3.js physics graphs, single-account ego-networks, SHAP waterfalls, and executive PDF dossier export:
+```bash
+streamlit run src/app_interactive.py
+```
+Open **`http://localhost:8501`** in your browser.
 
 ---
 

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Unit Tests & Audit Chain Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v
+
+      - name: Verify audit chain (regenerate + check the hash chain)
+        run: |
+          python src/risk_scoring.py
+          python src/verify_audit_log.py
+
+  docker:
+    name: Docker Build & Smoke Test
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t abuse-ring-sentinel .
+
+      - name: Smoke-test the container health
+        run: |
+          docker run -d --name ars-smoke -p 8501:8501 abuse-ring-sentinel
+          echo "Waiting for Streamlit container to report healthy..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8501/_stcore/health; then
+              echo "Container is healthy!"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Container did not become healthy in time"
+          docker logs ars-smoke
+          exit 1
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f ars-smoke || true

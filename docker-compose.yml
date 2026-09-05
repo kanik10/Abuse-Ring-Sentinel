@@ -1,0 +1,16 @@
+services:
+  sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: abuse-ring-sentinel:latest
+    container_name: abuse-ring-sentinel
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
