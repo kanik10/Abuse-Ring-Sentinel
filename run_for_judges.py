@@ -28,7 +28,7 @@ letting a later step run against stale data.
 app_interactive.py (the Streamlit cockpit) is intentionally NOT part of this
 runner — it's a server, not a batch job, and never exits on its own. Launch
 it separately:
-    streamlit run app_interactive.py
+    streamlit run src/app_interactive.py
 """
 
 import argparse
@@ -41,26 +41,26 @@ ROOT = Path(__file__).resolve().parent
 
 # Each entry: (script, description, output files to sanity-check afterward)
 FAST_STEPS = [
-    ("final_threshold_report.py",
+    ("src/final_threshold_report.py",
      "Cluster-level confusion matrix, ROI, and final_report.md",
      ["final_report.md", "metrics_summary.json"]),
-    ("risk_scoring.py",
+    ("src/risk_scoring.py",
      "Train the Champion model, export final_model.joblib, write the "
      "hash-chained audit_log.jsonl",
      ["final_model.joblib", "audit_log.jsonl"]),
-    ("verify_audit_log.py",
+    ("src/verify_audit_log.py",
      "Verify the audit log's hash chain is intact and untampered",
      []),
-    ("bootstrap_threshold_ci.py",
+    ("src/bootstrap_threshold_ci.py",
      "10,000-resample bootstrap CIs for precision/recall/cost",
      ["bootstrap_threshold_ci_results.csv"]),
-    ("phase3_temporal_backtest.py",
+    ("src/phase3_temporal_backtest.py",
      "101-snapshot zero-lookahead temporal backtest (needs final_model.joblib)",
      ["phase3_detection_latency_audit.csv", "phase3_counterfactual_summary.json"]),
-    ("naive_baseline.py",
+    ("src/naive_baseline.py",
      "Naive shared-address baseline comparison",
      ["naive_baseline_results.csv"]),
-    ("build_dashboard.py",
+    ("src/build_dashboard.py",
      "Build the offline dashboard.html from audit_log.jsonl",
      ["dashboard.html"]),
 ]
@@ -69,21 +69,21 @@ FAST_STEPS = [
 # Reads canonical day1_data/ CSVs directly -- does not regenerate them so the
 # canonical benchmark data and locked threshold remain completely stable.
 FULL_STEPS_PIPELINE = [
-    ("entity_resolution.py",
+    ("src/entity_resolution.py",
      "Resolve messy raw entity IDs into canonical resolved IDs "
      "(writes day1_data/resolved_account_*.csv)",
      ["day1_data/resolved_account_device.csv"]),
-    ("community_detection.py",
+    ("src/community_detection.py",
      "Louvain community detection", ["clusters.csv"]),
-    ("referral_features.py",
+    ("src/referral_features.py",
      "Directed referral cycle/latency features", ["referral_cluster_features.csv"]),
-    ("feature_engineering.py",
+    ("src/feature_engineering.py",
      "17-feature graph topology extraction", ["cluster_features.csv"]),
-    ("classifier.py",
+    ("src/classifier.py",
      "5-fold CV model selection", ["cluster_predictions.csv"]),
-    ("account_scoring.py",
+    ("src/account_scoring.py",
      "Per-account mastermind/sleeper ranking", ["account_scores.csv"]),
-    ("threshold_sweep.py",
+    ("src/threshold_sweep.py",
      "Single-seed 0.1x-100x FP cost sweep (legacy threshold analysis)",
      ["threshold_sweep_results.csv"]),
 ]
@@ -92,9 +92,9 @@ FULL_STEPS_PIPELINE = [
 # FAST_STEPS, since pooled_threshold_selection.py writes the JSON that
 # threshold_config.py reads at import time (which risk_scoring.py imports).
 FULL_STEPS_MULTISEED = [
-    ("multi_seed_eval.py",
+    ("src/multi_seed_eval.py",
      "Run the full pipeline across 15 independent synthetic seeds (SLOW)", []),
-    ("pooled_threshold_selection.py",
+    ("src/pooled_threshold_selection.py",
      "Pool all 15 seeds to select CHOSEN_THRESHOLD",
      ["pooled_threshold_selection_summary.json"]),
 ]
@@ -172,7 +172,7 @@ def main() -> None:
     print(f"{'=' * 70}")
     print("\nFor the interactive cockpit, run separately (not launched by this "
           "script, since Streamlit blocks and never exits):")
-    print("    streamlit run app_interactive.py")
+    print("    streamlit run src/app_interactive.py")
 
 
 if __name__ == "__main__":

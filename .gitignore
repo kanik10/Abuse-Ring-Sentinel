@@ -62,3 +62,8 @@ legacy_v1/
 
 # ─── Multi-seed evaluation runs ───
 multi_seed_runs/
+
+# ─── Test & Coverage Artifacts ───
+.coverage
+.pytest_cache/
+htmlcov/

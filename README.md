@@ -7,8 +7,8 @@
 [![Streamlit](https://img.shields.io/badge/UI-Streamlit%20Interactive-FF4B4B.svg)](https://streamlit.io/)
 [![NetworkX](https://img.shields.io/badge/Graph-NetworkX%20%2B%20Louvain-green.svg)](https://networkx.org/)
 [![Scikit-Learn](https://img.shields.io/badge/ML-Champion%20Calibrated%20Model-orange.svg)](https://scikit-learn.org/)
-[![Compliance](https://img.shields.io/badge/Policy-Strictly%20Defense--Only-purple.svg)](PRD.md#11-defense-only-compliance)
-[![Audit](https://img.shields.io/badge/Audit-100%25%20Reproducible-success.svg)](final_report.md)
+[![Compliance](https://img.shields.io/badge/Policy-Strictly%20Defense--Only-purple.svg)](docs/PRD.md#11-defense-only-compliance)
+[![Audit](https://img.shields.io/badge/Audit-100%25%20Reproducible-success.svg)](docs/final_report.md)
 
 ---
 
@@ -97,7 +97,7 @@ $$\text{Cost}(t) = \text{False Positive Review Overhead}(t) + \text{Unintercepte
 * At the pooled plateau midpoint of **`0.1333`**, **100% of rings are detected with 0 false positive clusters**, reducing total operating cost by 15.4% while maintaining a 50.6% safety buffer above benign background noise.
 
 ### 3. Zero-Lookahead Temporal Backtesting
-Evaluating graph models on static post-hoc snapshots introduces severe lookahead bias. Sentinel's point-in-time reconstruction logic lives in [temporal_reconstruction.py](temporal_reconstruction.py), and the full audit — including the resource-vs-referral subgroup breakdown — is run via [phase3_temporal_backtest.py](phase3_temporal_backtest.py), which:
+Evaluating graph models on static post-hoc snapshots introduces severe lookahead bias. Sentinel's point-in-time reconstruction logic lives in [temporal_reconstruction.py](src/temporal_reconstruction.py), and the full audit — including the resource-vs-referral subgroup breakdown — is run via [phase3_temporal_backtest.py](src/phase3_temporal_backtest.py), which:
 * Reconstructs historical graph state $G_t$ considering only entities and transactions observed on or before $t$.
 * Evaluates 101 historical snapshots taken at 7-day intervals from October 2024 to August 2026.
 * Measures true detection latency and proves that **90.4% of fraudulent volume is caught before clearance**.
@@ -145,26 +145,38 @@ Abuse-Ring-Sentinel/
 │   ├── raw_to_true_resource.csv            # Entity resolution mapping crosswalk
 │   └── bridge_log.csv                      # Adversarial bridge edge cases
 │
-├── entity_resolution.py                    # Entity normalization & mapping
-├── graph_builder.py                        # Bipartite network projection & edge weighting
-├── community_detection.py                  # Louvain modularity clustering
-├── feature_engineering.py                  # Core graph topological feature extraction
-├── referral_features.py                    # Directed referral dynamics & cycle detection
-├── classifier.py                           # 5-fold cross-validation of candidate models
-├── risk_scoring.py                         # Production Champion model fitting & export
-├── account_scoring.py                      # Intra-cluster node ranking (mastermind vs sleeper)
-├── threshold_config.py                     # Centralized operating threshold configuration (0.1333)
-├── threshold_sweep.py                      # 0.1x - 100x FP cost curve sensitivity analysis
-├── pooled_threshold_selection.py           # 15-seed pooled cost-curve optimizer
-├── bootstrap_threshold_ci.py               # 10,000-resample non-parametric bootstrap CIs
-├── temporal_reconstruction.py              # Point-in-time reconstruction module (imported by phase3)
-├── phase3_temporal_backtest.py             # Full 101-snapshot audit + resource/referral subgroup breakdown
-├── multi_seed_eval.py                      # Runs the pipeline across independent synthetic seeds
-├── naive_baseline.py                       # Shared-address-count baseline for comparison
-├── final_threshold_report.py               # Synchronized audit report generator
-├── pdf_generator.py                        # ReportLab executive PDF dossier generator
-├── build_dashboard.py                      # Builds a self-contained offline dashboard.html
-├── app_interactive.py                      # Streamlit interactive forensic cockpit
+├── docs/                                   # Project documentation and specifications
+│   ├── PRD.md                              # Product Requirements Document
+│   ├── DATA_DICTIONARY.md                  # Detailed data dictionary
+│   └── final_report.md                     # Detailed markdown evaluation report
+│
+├── src/                                    # Core pipeline scripts, detection engine & UI
+│   ├── generate_synthetic_data_v2.py       # Benchmark generator with planted abuse topologies
+│   ├── entity_resolution.py                # Entity normalization & mapping
+│   ├── graph_builder.py                    # Bipartite network projection & edge weighting
+│   ├── community_detection.py              # Louvain modularity clustering
+│   ├── feature_engineering.py              # Core graph topological feature extraction
+│   ├── referral_features.py                # Directed referral dynamics & cycle detection
+│   ├── classifier.py                       # 5-fold cross-validation of candidate models
+│   ├── risk_scoring.py                     # Production Champion model fitting & export
+│   ├── account_scoring.py                  # Intra-cluster node ranking (mastermind vs sleeper)
+│   ├── threshold_config.py                 # Centralized operating threshold configuration (0.1333)
+│   ├── threshold_sweep.py                  # 0.1x - 100x FP cost curve sensitivity analysis
+│   ├── pooled_threshold_selection.py       # 15-seed pooled cost-curve optimizer
+│   ├── bootstrap_threshold_ci.py           # 10,000-resample non-parametric bootstrap CIs
+│   ├── temporal_reconstruction.py          # Point-in-time reconstruction module (imported by phase3)
+│   ├── phase3_temporal_backtest.py         # Full 101-snapshot audit + resource/referral subgroup breakdown
+│   ├── multi_seed_eval.py                  # Runs the pipeline across independent synthetic seeds
+│   ├── naive_baseline.py                   # Shared-address-count baseline for comparison
+│   ├── final_threshold_report.py           # Synchronized audit report generator
+│   ├── pdf_generator.py                    # ReportLab executive PDF dossier generator
+│   ├── audit_chain.py                      # Cryptographic SHA-256 hash-chaining audit logger
+│   ├── verify_audit_log.py                 # Standalone audit chain integrity verification
+│   ├── build_dashboard.py                  # Builds a self-contained offline dashboard.html
+│   └── app_interactive.py                  # Streamlit interactive forensic cockpit
+│
+├── tests/                                  # Comprehensive automated test suite
+├── run_for_judges.py                       # One-command full reproducibility runner
 │
 ├── final_model.joblib                      # Serialized Champion model pipeline
 ├── clusters.csv                            # Louvain output: 668 accounts across 70 clusters
@@ -183,10 +195,10 @@ Abuse-Ring-Sentinel/
 │                                            # Full per-ring latency & counterfactual detail, with subgroup breakdown
 ├── dashboard.html                          # Pre-built offline audit dashboard (no server needed)
 ├── metrics_summary.json                    # Machine-readable audit metrics
-├── final_report.md                         # Detailed markdown evaluation report
 ├── requirements.txt                        # Pinned dependencies
-├── PRD.md                                  # Product Requirements Document
-└── DATA_DICTIONARY.md                      # Detailed data dictionary
+├── pytest.ini                              # Pytest configuration (pythonpath = src)
+├── LICENSE                                 # License file
+└── .gitignore                              # Git ignore rules
 ```
 
 ---
@@ -204,48 +216,48 @@ pip install -r requirements.txt
 ### 2. Launch the Interactive Dashboard
 Launch the Streamlit Trust & Safety Cockpit:
 ```bash
-streamlit run app_interactive.py
+streamlit run src/app_interactive.py
 ```
 Open your browser at `http://localhost:8501`. Explore clusters, inspect ego-graphs, adjust hop radii, and export executive PDF dossiers.
 
 ### 3. Verify Model Evaluation & Metrics
 Run the synchronized threshold evaluation against the committed data:
 ```bash
-python final_threshold_report.py
+python src/final_threshold_report.py
 ```
 *Outputs: 70 clusters, 26 true rings, 26 flagged (100% Precision, 100% Recall), Rs. 708,255 protected, Rs. 1,777 FP review cost (~399x ROI).*
 
 ### 4. Run the Zero-Lookahead Temporal Backtest
-Execute the full 101-snapshot historical reconstruction backtest, including the resource-vs-referral subgroup breakdown (`temporal_reconstruction.py` provides the underlying point-in-time reconstruction functions that this script imports and calls):
+Execute the full 101-snapshot historical reconstruction backtest, including the resource-vs-referral subgroup breakdown (`src/temporal_reconstruction.py` provides the underlying point-in-time reconstruction functions that this script imports and calls):
 ```bash
-python phase3_temporal_backtest.py
+python src/phase3_temporal_backtest.py
 ```
 *Outputs: 101 snapshots evaluated (7-day intervals), 100% ring detection rate (28/28), 30.0-day median detection latency, 90.4% fraud volume prevented. Writes `phase3_detection_latency_audit.csv` and `phase3_counterfactual_summary.json`, plus compatibility copies `temporal_detection_latencies.csv` and `temporal_backtest_summary.json`.*
 
 ### 5. Run Bootstrap Statistical Confidence Intervals
 Compute 10,000 bootstrap resamples for Precision, Recall, and Cost:
 ```bash
-python bootstrap_threshold_ci.py
+python src/bootstrap_threshold_ci.py
 ```
 
 ### 6. Compare Against a Naive Baseline (optional)
 See how a simple "large shared-address-group" heuristic compares to the full graph pipeline:
 ```bash
-python naive_baseline.py
+python src/naive_baseline.py
 ```
 *The naive baseline tops out around F1 ≈ 0.88 (precision ~1.0, recall ~79%) — the Champion model's 1.000/1.000 reflects what the graph and referral features add over row-level heuristics.*
 
 ### 7. Build the Offline Dashboard & Verify Audit Log (optional)
-`risk_scoring.py` writes a byte-reproducible, hash-chained `audit_log.jsonl` (with canonical JSON serialization and SHA-256 cryptographic linkage).
-You can verify the cryptographic chain integrity with `verify_audit_log.py`:
+`src/risk_scoring.py` writes a byte-reproducible, hash-chained `audit_log.jsonl` (with canonical JSON serialization and SHA-256 cryptographic linkage).
+You can verify the cryptographic chain integrity with `src/verify_audit_log.py`:
 ```bash
-python risk_scoring.py
-python verify_audit_log.py
+python src/risk_scoring.py
+python src/verify_audit_log.py
 ```
 
-`build_dashboard.py` reads `audit_log.jsonl` (automatically unwrapping the hash-chain wrapper) and generates a self-contained `dashboard.html` that opens via `file://` with no server — useful for reviewers who can't run Streamlit:
+`src/build_dashboard.py` reads `audit_log.jsonl` (automatically unwrapping the hash-chain wrapper) and generates a self-contained `dashboard.html` that opens via `file://` with no server — useful for reviewers who can't run Streamlit:
 ```bash
-python build_dashboard.py
+python src/build_dashboard.py
 ```
 
 ---

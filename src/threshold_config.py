@@ -30,7 +30,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 _FALLBACK_THRESHOLD = 0.1333192760434377
 
-_SUMMARY_FILE = Path(__file__).resolve().parent / "pooled_threshold_selection_summary.json"
+_SUMMARY_FILE = Path(__file__).resolve().parent.parent / "pooled_threshold_selection_summary.json"
 
 
 def _load_threshold() -> float:

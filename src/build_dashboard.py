@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 AUDIT_LOG = ROOT / "audit_log.jsonl"
 OUTPUT = ROOT / "dashboard.html"
 
