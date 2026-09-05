@@ -150,16 +150,29 @@ The Streamlit dashboard provides a comprehensive workspace for Tier-2 Trust & Sa
 
 1. **Executive Portfolio Scorecard**: Live counts of monitored accounts, Louvain clusters, precision/recall cards, and net financial ROI.
 2. **Interactive D3.js Network Graph**: Physics-simulated cluster visualization highlighting high-degree mastermind hubs in `#ec4899` pink and peripheral sleepers in `#3b82f6` blue.
-   ![Interactive D3.js Network Graph](docs/assets/network_cluster_graph.png)
+   <br/><br/>
+   <img src="docs/assets/network_cluster_graph.png" alt="Interactive D3.js Network Graph" width="480" />
+   <br/>
    *Figure 3: Interactive D3.js force-directed cluster topology. High-degree mastermind hubs (pink) coordinate peripheral sleeper accounts (blue) across shared device, payment, address, and IP linkages.*
+   <br/><br/>
 3. **Single-Account Ego-Graph**:
    * **Projected Ego-Network**: Shows account-to-account co-occurrence edges with hop-radius filters.
+     <br/><br/>
+     <img src="docs/assets/single_account_ego_graph.png" alt="Single-Account Ego-Graph" width="440" />
+     <br/>
+     *Figure 4: Single-account projected ego network centered on account `cc2bb0` (orange glow), revealing multi-entity linkages with adjacent syndicate members.*
+     <br/>
    * **Entity Bipartite Tree**: Expands an account's direct links to raw physical devices, payment hashes, and IP subnets.
-   ![Single-Account Ego-Graph](docs/assets/single_account_ego_graph.png)
-   *Figure 4: Single-account projected ego network centered on account `cc2bb0` (orange glow), revealing multi-entity linkages with adjacent syndicate members.*
+     <br/><br/>
+     <img src="docs/assets/entity_bipartite_tree.png" alt="Entity Bipartite Tree" width="440" />
+     <br/>
+     *Figure 5: Entity bipartite projection centered on account `cc2bb0` expanding direct linkages to physical devices, payment cards, delivery addresses, and IP subnets.*
+     <br/><br/>
 4. **SHAP Waterfall & Feature Attributions**: Log-odds breakdown explaining exactly which signals drove the risk score.
-   ![SHAP Waterfall Attributions](docs/assets/shap_feature_attributions.png)
-   *Figure 5: Deterministic SHAP log-odds contributions for candidate cluster features, proving mathematical attribution without generative LLM hallucination.*
+   <br/><br/>
+   <img src="docs/assets/shap_feature_attributions.png" alt="SHAP Waterfall Attributions" width="620" />
+   <br/>
+   *Figure 6: Deterministic SHAP log-odds contributions for candidate cluster features, proving mathematical attribution without generative LLM hallucination.*
 5. **Internal Cluster Account Roster**: Ranks accounts by risk score, creation timestamp, and total transaction volume.
 6. **Counterfactual Temporal Horizon**: Visualizes how early the cluster was detected relative to its order completion timeline, proving that 90.4% of volume was intercepted pre-clearance.
 7. **Executive PDF Export**: Generates a boardroom-ready, multi-page ReportLab PDF audit dossier with embedded KPI tables and color-matched charts.
