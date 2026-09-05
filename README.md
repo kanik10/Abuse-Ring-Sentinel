@@ -99,8 +99,8 @@ Evaluating fraud models on static post-hoc graphs creates a false sense of secur
 
 ### 1. Dual-Topology Feature Engineering
 Organized abuse is bifurcated between hardware reuse and incentive manipulation. Sentinel extracts 17 features across two complementary engines:
-* **Resource-Sharing Graph Topology**: `cluster_size`, `entity_reuse_ratio` ($\text{ERR} = 1 - \frac{\text{distinct\_resources}}{\text{total\_usages}}$), `internal_density`, degree centrality, betweenness centrality, PageRank authority, creation-time burstiness, and order amount dispersion.
-* **Directed Referral Dynamics**: Directed cycle ratios (fraction of member accounts in circular $A \to B \to C \to A$ farming loops), referral-resource overlap ratios (fraction of cluster referral edges staying internal: $\frac{\text{internal referral edges}}{\text{total referral edges touching members}}$), median activation lag in days ($\text{first\_order\_date} - \text{referral\_date}$), and within-cluster referral density (fraction of member pairs with a referral link in either direction).
+* **Resource-Sharing Graph Topology**: `cluster_size`, `entity_reuse_ratio` (`ERR = 1 - (distinct_resources / total_usages)`), `internal_density`, degree centrality, betweenness centrality, PageRank authority, creation-time burstiness, and order amount dispersion.
+* **Directed Referral Dynamics**: Directed cycle ratios (fraction of member accounts in circular $A \to B \to C \to A$ farming loops), referral-resource overlap ratios (fraction of cluster referral edges staying internal: `internal referral edges / total referral edges touching members`), median activation lag in days (`first_order_date - referral_date`), and within-cluster referral density (fraction of member pairs with a referral link in either direction).
 
 ### 2. Cross-Seed Pooled Threshold Selection (`0.1333`)
 Single-dataset threshold tuning suffers from flat-plateau sample variance. Sentinel evaluates candidate thresholds across **15 independent synthetic seeds** (954 clusters, 292 true rings) minimizing total business loss:
