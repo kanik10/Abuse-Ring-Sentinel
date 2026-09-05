@@ -327,6 +327,8 @@ pip install -r requirements.txt
 Once verified, spin up the Streamlit analyst cockpit:
 ```bash
 streamlit run src/app_interactive.py
+# or on Windows / if streamlit is not in PATH:
+# python -m streamlit run src/app_interactive.py
 ```
 Open **`http://localhost:8501`** in your browser.
 
@@ -452,6 +454,8 @@ python src/build_dashboard.py
 Launches the full interactive Streamlit cockpit with D3.js physics graphs, single-account ego-networks, SHAP waterfalls, and executive PDF dossier export:
 ```bash
 streamlit run src/app_interactive.py
+# or on Windows / if streamlit is not in PATH:
+# python -m streamlit run src/app_interactive.py
 ```
 Open **`http://localhost:8501`** in your browser.
 

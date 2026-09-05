@@ -173,6 +173,7 @@ def main() -> None:
     print("\nFor the interactive cockpit, run separately (not launched by this "
           "script, since Streamlit blocks and never exits):")
     print("    streamlit run src/app_interactive.py")
+    print("    (or on Windows: python -m streamlit run src/app_interactive.py)")
 
 
 if __name__ == "__main__":
