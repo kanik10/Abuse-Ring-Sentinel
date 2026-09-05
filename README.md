@@ -54,6 +54,11 @@ Evaluating fraud models on static post-hoc graphs creates a false sense of secur
 
 ## 🏛️ System Architecture
 
+![Abuse-Ring Sentinel End-to-End System Architecture](docs/assets/system_architecture_flow.png)
+*Figure 2: End-to-end multi-layer pipeline architecture for Abuse-Ring Sentinel, mapping raw entity ingestion (Layer 1) to bipartite graph resolution (Layer 2), dual-engine topological & referral feature extraction (Layer 3), calibrated ML classification & cost-curve thresholding (Layer 4), and the interactive Tier-2 triage cockpit with cryptographic audit logging (Layer 5).*
+
+> **Detailed Architectural & Mathematical Reference**: The comprehensive technical breakdown covering mathematical formulations, formal graph equations, and algorithmic pseudocode across all 5 pipeline layers is documented in [`docs/architectural flow diagram of abuse ring sentinel.pdf`](docs/architectural%20flow%20diagram%20of%20abuse%20ring%20sentinel.pdf) (*"Mathematical & Model Flow for Abuse-Ring Detection & Risk Management"*).
+
 ```
                                   [Raw Multi-Entity Tables]
                    (Accounts, Devices, Payments, Addresses, IPs, Orders, Referrals)
@@ -94,8 +99,8 @@ Evaluating fraud models on static post-hoc graphs creates a false sense of secur
 
 ### 1. Dual-Topology Feature Engineering
 Organized abuse is bifurcated between hardware reuse and incentive manipulation. Sentinel extracts 17 features across two complementary engines:
-* **Resource-Sharing Graph Topology**: `cluster_size`, `entity_reuse_ratio` ($\text{ERR}$), `internal_density`, degree centrality, betweenness centrality, PageRank authority, creation-time burstiness, and order amount dispersion.
-* **Directed Referral Dynamics**: Directed cycle ratios ($A \to B \to C \to A$), referral-resource overlap ratios, median activation lag in days, and within-cluster referral density.
+* **Resource-Sharing Graph Topology**: `cluster_size`, `entity_reuse_ratio` ($\text{ERR} = 1 - \frac{\text{distinct\_resources}}{\text{total\_usages}}$), `internal_density`, degree centrality, betweenness centrality, PageRank authority, creation-time burstiness, and order amount dispersion.
+* **Directed Referral Dynamics**: Directed cycle ratios (fraction of member accounts in circular $A \to B \to C \to A$ farming loops), referral-resource overlap ratios (fraction of cluster referral edges staying internal: $\frac{\text{internal referral edges}}{\text{total referral edges touching members}}$), median activation lag in days ($\text{first\_order\_date} - \text{referral\_date}$), and within-cluster referral density (fraction of member pairs with a referral link in either direction).
 
 ### 2. Cross-Seed Pooled Threshold Selection (`0.1333`)
 Single-dataset threshold tuning suffers from flat-plateau sample variance. Sentinel evaluates candidate thresholds across **15 independent synthetic seeds** (954 clusters, 292 true rings) minimizing total business loss:
@@ -110,7 +115,7 @@ Evaluating graph models on static post-hoc snapshots introduces severe lookahead
 * Measures true detection latency and proves that **90.4% of fraudulent volume is caught before clearance**.
 
 ![Zero-Lookahead Temporal Backtest Curves](docs/assets/temporal_backtest_curves.png)
-*Figure 2: (Left) Cumulative fraud ring detection curve across 101 point-in-time historical snapshots; (Right) Fraud volume prevented (%) versus detection latency across resource-sharing (blue) and referral-chain (pink) syndicates.*
+*Figure 3: (Left) Cumulative fraud ring detection curve across 101 point-in-time historical snapshots; (Right) Fraud volume prevented (%) versus detection latency across resource-sharing (blue) and referral-chain (pink) syndicates.*
 
 ### 4. Why Tabular Behavioral Models Fail on Sleeper Networks
 Traditional fraud and risk management engines rely heavily on **row-level tabular and behavioral anomaly models** (e.g., velocity rules, login burst frequency, checkout speed, average order ticket size, and payment attempt frequency).
@@ -153,26 +158,26 @@ The Streamlit dashboard provides a comprehensive workspace for Tier-2 Trust & Sa
    <br/><br/>
    <img src="docs/assets/network_cluster_graph.png" alt="Interactive D3.js Network Graph" width="480" />
    <br/>
-   *Figure 3: Interactive D3.js force-directed cluster topology. High-degree mastermind hubs (pink) coordinate peripheral sleeper accounts (blue) across shared device, payment, address, and IP linkages.*
+   *Figure 4: Interactive D3.js force-directed cluster topology. High-degree mastermind hubs (pink) coordinate peripheral sleeper accounts (blue) across shared device, payment, address, and IP linkages.*
    <br/><br/>
 3. **Single-Account Ego-Graph**:
    * **Projected Ego-Network**: Shows account-to-account co-occurrence edges with hop-radius filters.
      <br/><br/>
      <img src="docs/assets/single_account_ego_graph.png" alt="Single-Account Ego-Graph" width="440" />
      <br/>
-     *Figure 4: Single-account projected ego network centered on account `cc2bb0` (orange glow), revealing multi-entity linkages with adjacent syndicate members.*
+     *Figure 5: Single-account projected ego network centered on account `cc2bb0` (orange glow), revealing multi-entity linkages with adjacent syndicate members.*
      <br/>
    * **Entity Bipartite Tree**: Expands an account's direct links to raw physical devices, payment hashes, and IP subnets.
      <br/><br/>
      <img src="docs/assets/entity_bipartite_tree.png" alt="Entity Bipartite Tree" width="440" />
      <br/>
-     *Figure 5: Entity bipartite projection centered on account `cc2bb0` expanding direct linkages to physical devices, payment cards, delivery addresses, and IP subnets.*
+     *Figure 6: Entity bipartite projection centered on account `cc2bb0` expanding direct linkages to physical devices, payment cards, delivery addresses, and IP subnets.*
      <br/><br/>
 4. **SHAP Waterfall & Feature Attributions**: Log-odds breakdown explaining exactly which signals drove the risk score.
    <br/><br/>
    <img src="docs/assets/shap_feature_attributions.png" alt="SHAP Waterfall Attributions" width="620" />
    <br/>
-   *Figure 6: Deterministic SHAP log-odds contributions for candidate cluster features, proving mathematical attribution without generative LLM hallucination.*
+   *Figure 7: Deterministic SHAP log-odds contributions for candidate cluster features, proving mathematical attribution without generative LLM hallucination.*
 5. **Internal Cluster Account Roster**: Ranks accounts by risk score, creation timestamp, and total transaction volume.
 6. **Counterfactual Temporal Horizon**: Visualizes how early the cluster was detected relative to its order completion timeline, proving that 90.4% of volume was intercepted pre-clearance.
 7. **Executive PDF Export**: Generates a boardroom-ready, multi-page ReportLab PDF audit dossier with embedded KPI tables and color-matched charts.

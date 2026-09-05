@@ -38,6 +38,10 @@ Coordinated multi-account abuse represents one of the fastest-growing loss categ
 
 ## 4. System Architecture & Pipeline Flow
 
+![Abuse-Ring Sentinel End-to-End System Architecture](assets/system_architecture_flow.png)
+
+> **Detailed Architectural & Mathematical Reference**: The comprehensive technical breakdown covering mathematical formulations, formal graph equations, and algorithmic pseudocode across all 5 pipeline layers is documented in [`docs/architectural flow diagram of abuse ring sentinel.pdf`](architectural%20flow%20diagram%20of%20abuse%20ring%20sentinel.pdf) (*"Mathematical & Model Flow for Abuse-Ring Detection & Risk Management"*).
+
 ```
                                   [Raw Multi-Entity Tables]
                    (Accounts, Devices, Payments, Addresses, IPs, Orders, Referrals)

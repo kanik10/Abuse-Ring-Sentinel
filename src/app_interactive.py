@@ -2532,7 +2532,7 @@ with st.container(border=True):
                         rfcols[1].metric(
                             "Resource overlap",
                             f"{cluster_ref_feat['referral_resource_overlap_ratio'].values[0]:.3f}",
-                            help="Fraction of referral edges where both accounts share a resource.",
+                            help="Fraction of cluster's referral edges that stay fully internal to the cluster.",
                         )
                         rfcols[2].metric(
                             "Median activation",

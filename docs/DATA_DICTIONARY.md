@@ -135,7 +135,7 @@ Cluster-level feature matrix containing 17 engineered structural, temporal, and 
 
 #### Core Graph Topology Features:
 * `cluster_size`: Number of distinct accounts in the community.
-* `entity_reuse_ratio` ($\text{ERR}$): Number of unique shared physical entities divided by cluster size.
+* `entity_reuse_ratio` ($\text{ERR}$): Degree of entity reuse across cluster members, computed as $1 - \frac{\text{distinct\_resources}}{\text{total\_usages}}$ across all linked devices, payment instruments, delivery addresses, and IP subnets. A value of $0.0$ indicates zero entity sharing (every usage is a unique entity), while values approaching $1.0$ indicate intense entity recycling across accounts.
 * `internal_density`: Edge density within the community subgraph ($\frac{2E}{N(N-1)}$).
 * `mean_degree_centrality`, `max_degree_centrality`: Distribution of node degrees within the cluster.
 * `mean_pagerank`, `max_pagerank`: Structural influence and connection authority of member accounts.
@@ -148,10 +148,10 @@ Cluster-level feature matrix containing 17 engineered structural, temporal, and 
 * `order_amount_cv`: Coefficient of variation of order amounts ($\frac{\sigma}{\mu}$).
 
 #### Directed Referral Network Features (`REFERRAL_FEATURE_COLS`):
-* `referral_cycle_ratio`: Fraction of referral connections forming directed closed loops (e.g. $A \to B \to C \to A$).
-* `referral_resource_overlap_ratio`: Proportion of referral edges that also share a device, IP, or payment instrument.
-* `median_referral_activation_days`: Median days between account creation and referral link redemption.
-* `within_cluster_referral_density`: Ratio of internal referral edges to theoretically possible directed edges.
+* `referral_cycle_ratio`: Fraction of cluster member accounts involved in directed referral cycles (accounts residing in strongly connected components with $\ge 2$ members, divided by cluster size $N$). Natural referral trees form directed acyclic graphs (DAGs); circular loops ($A \to B \to C \to A$) indicate bonus extraction collusion.
+* `referral_resource_overlap_ratio`: Fraction of referral edges touching any cluster member that stay fully internal to the cluster ($\frac{\text{internal referral edges}}{\text{total referral edges involving cluster members}}$). Measures whether referral links are contained within the resource-sharing community rather than radiating outward to organic users.
+* `median_referral_activation_days`: Median elapsed days between referral timestamp and referred account first order ($\text{first\_order\_date} - \text{referral\_date}$ across accounts referred by cluster members). Organic referrals exhibit natural human activation lag, whereas fraud rings activate immediately (defaults to $60.0$ days if no activation orders exist).
+* `within_cluster_referral_density`: Fraction of unordered member account pairs connected by a referral link in either direction ($\frac{\text{unique connected pairs}}{\binom{N}{2}}$). Measures referral graph interconnectedness within the cluster.
 
 #### Prediction Columns (`cluster_predictions.csv`):
 * `y_true_is_ring`: Ground-truth label ($1$ if cluster contains true fraud ring members, $0$ if coincidental/benign).

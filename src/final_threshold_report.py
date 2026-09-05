@@ -21,6 +21,7 @@ Produces final_report.md -- ready to paste into the README/PRD.
 
 import json
 import os
+from pathlib import Path
 import pandas as pd
 
 from bootstrap_threshold_ci import (
@@ -192,6 +193,9 @@ draw of clusters have changed the answer."
 
     with open("final_report.md", "w", encoding="utf-8") as f:
         f.write(report)
+    if Path("docs").is_dir():
+        with open(Path("docs") / "final_report.md", "w", encoding="utf-8") as f:
+            f.write(report)
 
     # Additive, structured summary of the same numbers above -- doesn't change
     # final_report.md or any computed value. Exists so multi_seed_eval.py (or

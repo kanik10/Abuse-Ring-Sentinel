@@ -23,8 +23,9 @@ FEATURES
    create cycles to maximise bonus extraction.
 
 2. referral_resource_overlap_ratio
-   Fraction of referral edges (A->B) where both A and B belong to the same
-   resource-sharing cluster.
+   Fraction of referral edges touching any cluster member that stay fully
+   internal to the cluster (internal referral edges / total referral edges
+   involving members).
 
 3. median_referral_activation_days
    Median days between referral_date and referred account first order,
