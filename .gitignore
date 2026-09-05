@@ -37,6 +37,7 @@ ehthumbs.db
 
 # ─── ML Model Artifacts ───
 *.joblib
+!final_model.joblib
 *.pkl
 *.pickle
 *.h5
@@ -51,6 +52,7 @@ ehthumbs.db
 *.tmp
 *.bak
 audit_log.jsonl
+/final_report.md
 
 # ─── Scratch / Dev Files ───
 scratch_app.py
