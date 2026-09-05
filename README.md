@@ -43,6 +43,13 @@ All metrics below are computed directly from the committed canonical dataset (`d
 | | **Detection Latency** | **`30.0 days`** | Median days from syndicate formation to first threshold trigger |
 | | **Detection Rate** | **`100%` (28/28)** | 100% of rings intercepted before their operational completion |
 
+#### ⏱️ Temporal Latency & Counterfactual Exposure Horizon
+
+Evaluating fraud models on static post-hoc graphs creates a false sense of security. To measure true operational performance, Sentinel reconstructs historical graph state across **101 point-in-time snapshots** at 7-day intervals without lookahead bias. As demonstrated below, **90.4% of total fraudulent transaction volume is intercepted** before order clearance:
+
+![Temporal Latency Exposure Horizon](docs/assets/temporal_latency_exposure.png)
+*Figure 1: Cumulative fraud volume timeline showing incurred loss pre-detection (maroon) versus protected counterfactual volume (green) intercepted once the threshold triggers.*
+
 ---
 
 ## 🏛️ System Architecture
@@ -102,7 +109,34 @@ Evaluating graph models on static post-hoc snapshots introduces severe lookahead
 * Evaluates 101 historical snapshots taken at 7-day intervals from October 2024 to August 2026.
 * Measures true detection latency and proves that **90.4% of fraudulent volume is caught before clearance**.
 
-### 4. Strictly Defense-Only Compliance
+![Zero-Lookahead Temporal Backtest Curves](docs/assets/temporal_backtest_curves.png)
+*Figure 2: (Left) Cumulative fraud ring detection curve across 101 point-in-time historical snapshots; (Right) Fraud volume prevented (%) versus detection latency across resource-sharing (blue) and referral-chain (pink) syndicates.*
+
+### 4. Why Tabular Behavioral Models Fail on Sleeper Networks
+Traditional fraud and risk management engines rely heavily on **row-level tabular and behavioral anomaly models** (e.g., velocity rules, login burst frequency, checkout speed, average order ticket size, and payment attempt frequency).
+
+While behavioral models excel against automated credential stuffing or crude bot attacks, they are **fundamentally blind to organized sleeper syndicates**:
+1. **Benign Behavioral Masking**: Professional fraud syndicates instruct operators or scripts to deliberately emulate organic consumer behavior. They place modest-ticket orders (Rs. 500 – Rs. 1,500), maintain normal browsing dwell times, and avoid high-frequency velocity triggers.
+2. **Incubation & Sleeper Tactics**: Sleeper accounts are created weeks or months before fraud activation. In isolation, each account's tabular feature vector looks identical to that of a low-velocity, legitimate customer ($p(\text{fraud}) < 0.05$).
+3. **Tabular Decoupling**: Because tabular classifiers score each account/transaction in isolation, they cannot observe that 30 nominally independent accounts share a hardware fingerprint, rotate credit card tokens across subnets, or form circular referral farming loops.
+
+**Sentinel's Relational Solution**: Sentinel shifts the detection paradigm from *individual behavior* to *relational graph topology*. Even when every account's transactional behavior appears pristine, the underlying physical and financial coordination infrastructure (shared devices, payment instrument recycling, delivery cluster geohashes, and directed referral cycles) cannot be hidden without the syndicate forfeiting its multi-account economies of scale.
+
+### 5. Explainability Architecture: Deterministic SHAP vs. Generative LLMs
+For Tier-2 Trust & Safety triage and regulatory compliance, Sentinel deliberately implements **deterministic SHAP (SHapley Additive exPlanations)** rather than free-form LLM-generated explanations:
+
+1. **Mathematical Exactness vs. Generative Hallucination**:
+   - SHAP is rooted in cooperative game theory (Shapley values). It guarantees **local accuracy**, **missingness**, and **consistency**: the sum of feature attributions strictly equals the difference between the model output and the expected base score ($f(x) = \phi_0 + \sum_{i=1}^M \phi_i$).
+   - In contrast, LLMs generate probabilistic natural language. In financial risk triage, LLMs are prone to **hallucination**—inventing phantom transaction patterns, fabricating non-existent entity linkages, or producing contradictory explanations for the same cluster across runs.
+2. **Regulatory Admissibility & Model Risk Governance (SR 11-7 / Adverse Action)**:
+   - When financial institutions flag accounts, freeze promotional credits, or require human intervention, decisions must be legally defensible under Fair Lending, Model Risk Management (SR 11-7), and Adverse Action frameworks.
+   - Compliance auditors and human risk analysts require exact, reproducible log-odds contributions (e.g., $+2.476$ from Entity Reuse Ratio, $+2.145$ from internal density) that directly match the byte-reproducible, SHA-256 hash-chained audit log (`audit_log.jsonl`).
+3. **Air-Gapped Privacy & Sub-Millisecond Latency**:
+   - SHAP computations run locally in-memory inside the container in milliseconds without outbound network calls, token consumption costs, or transmitting sensitive consumer PII, bank hashes, and device fingerprints to third-party commercial LLM APIs.
+4. **The Complementary Role of LLMs**:
+   - Within Sentinel's architecture, if executive natural language summaries are required, an LLM acts purely as a *downstream translation layer* taking verified SHAP values as prompt constraints—never as the primary attribution or decision engine.
+
+### 6. Strictly Defense-Only Compliance
 Sentinel complies with the buildathon's defense-only mandate by design:
 * **No Automated Punitive Actions**: The software contains no code paths to block accounts, freeze funds, or cancel orders.
 * **Structural Enum Constraint**: The system output schema enforces that `RecommendedAction` is strictly `FLAG_FOR_REVIEW`.
@@ -116,12 +150,18 @@ The Streamlit dashboard provides a comprehensive workspace for Tier-2 Trust & Sa
 
 1. **Executive Portfolio Scorecard**: Live counts of monitored accounts, Louvain clusters, precision/recall cards, and net financial ROI.
 2. **Interactive D3.js Network Graph**: Physics-simulated cluster visualization highlighting high-degree mastermind hubs in `#ec4899` pink and peripheral sleepers in `#3b82f6` blue.
+   ![Interactive D3.js Network Graph](docs/assets/network_cluster_graph.png)
+   *Figure 3: Interactive D3.js force-directed cluster topology. High-degree mastermind hubs (pink) coordinate peripheral sleeper accounts (blue) across shared device, payment, address, and IP linkages.*
 3. **Single-Account Ego-Graph**:
    * **Projected Ego-Network**: Shows account-to-account co-occurrence edges with hop-radius filters.
    * **Entity Bipartite Tree**: Expands an account's direct links to raw physical devices, payment hashes, and IP subnets.
+   ![Single-Account Ego-Graph](docs/assets/single_account_ego_graph.png)
+   *Figure 4: Single-account projected ego network centered on account `cc2bb0` (orange glow), revealing multi-entity linkages with adjacent syndicate members.*
 4. **SHAP Waterfall & Feature Attributions**: Log-odds breakdown explaining exactly which signals drove the risk score.
+   ![SHAP Waterfall Attributions](docs/assets/shap_feature_attributions.png)
+   *Figure 5: Deterministic SHAP log-odds contributions for candidate cluster features, proving mathematical attribution without generative LLM hallucination.*
 5. **Internal Cluster Account Roster**: Ranks accounts by risk score, creation timestamp, and total transaction volume.
-6. **Counterfactual Temporal Horizon**: Visualizes how early the cluster was detected relative to its order completion timeline.
+6. **Counterfactual Temporal Horizon**: Visualizes how early the cluster was detected relative to its order completion timeline, proving that 90.4% of volume was intercepted pre-clearance.
 7. **Executive PDF Export**: Generates a boardroom-ready, multi-page ReportLab PDF audit dossier with embedded KPI tables and color-matched charts.
 
 ---
